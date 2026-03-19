@@ -279,7 +279,7 @@ read_num_or_keep(Prompt, Old, New) :-
 %% book_sep/0  —  full-width separator that covers all columns
 book_sep :-
     write('================================================================================================================================'), nl.
-
+ 
 %% book_header/0  —  separator + column labels + separator
 book_header :-
     book_sep,
