@@ -10,6 +10,7 @@
 :- ensure_loaded(books).
 :- ensure_loaded(loans).
 :- use_module(library(readutil)).
+:- use_module(library(aggregate)).
 
 start :-
     load_data,
@@ -17,7 +18,7 @@ start :-
 
 main_menu :-
     repeat,
-    draw_header('OPAC - MAIN MENU'),
+    draw_main_header,
     write('1. Login as User'), nl,
     write('2. Login as Librarian'), nl,
     write('3. Save Data'), nl,
@@ -150,6 +151,62 @@ draw_header(Title) :-
     write('==============================================='), nl,
     write(Title), nl,
     write('==============================================='), nl.
+
+draw_main_header :-
+    draw_header('OPAC - MAIN MENU'),
+    runtime_stats(Books, ActiveLoans, Mode),
+    format('Books: ~w | Active Loans: ~w | Mode: ~w~n', [Books, ActiveLoans, Mode]),
+    write('-----------------------------------------------'), nl.
+
+runtime_stats(Books, ActiveLoans, parallel) :-
+    supports_parallel,
+    !,
+    parallel_runtime_stats(Books, ActiveLoans).
+runtime_stats(Books, ActiveLoans, sequential) :-
+    sequential_runtime_stats(Books, ActiveLoans).
+
+supports_parallel :-
+    current_predicate(thread_create/3),
+    current_predicate(thread_join/2),
+    current_predicate(message_queue_create/1),
+    current_prolog_flag(threads, true).
+
+parallel_runtime_stats(Books, ActiveLoans) :-
+    message_queue_create(Q),
+    thread_create(send_book_count(Q), TB, []),
+    thread_create(send_active_loan_count(Q), TL, []),
+    collect_stats(2, Q, 0, 0, Books, ActiveLoans),
+    thread_join(TB, _),
+    thread_join(TL, _),
+    message_queue_destroy(Q).
+
+collect_stats(0, _, Books, Loans, Books, Loans) :- !.
+collect_stats(N, Q, AccBooks, AccLoans, Books, Loans) :-
+    thread_get_message(Q, metric(Type, Value)),
+    ( Type = books ->
+        NextBooks = Value,
+        NextLoans = AccLoans
+    ; Type = active_loans ->
+        NextBooks = AccBooks,
+        NextLoans = Value
+    ;
+        NextBooks = AccBooks,
+        NextLoans = AccLoans
+    ),
+    N1 is N - 1,
+    collect_stats(N1, Q, NextBooks, NextLoans, Books, Loans).
+
+send_book_count(Q) :-
+    aggregate_all(count, book(_, _, _, _, _, _), Count),
+    thread_send_message(Q, metric(books, Count)).
+
+send_active_loan_count(Q) :-
+    aggregate_all(count, loan(_, _, _, _, _, none), Count),
+    thread_send_message(Q, metric(active_loans, Count)).
+
+sequential_runtime_stats(Books, ActiveLoans) :-
+    aggregate_all(count, book(_, _, _, _, _, _), Books),
+    aggregate_all(count, loan(_, _, _, _, _, none), ActiveLoans).
 
 info(Message) :-
     format('~n[INFO] ~w~n', [Message]).
