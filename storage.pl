@@ -1,5 +1,5 @@
 % -------------------------------------------------
-% STORAGE.PL (FINAL SQL VERSION - 6DIPROGLANG & 6IMAN COMPLIANT)
+% STORAGE.PL ( SQL VERSION )
 % -------------------------------------------------
 :- use_module(library(odbc)).
 
@@ -12,11 +12,13 @@ connect_db :-
     odbc_connect('opac_db', _, [alias(opac), open(once)]).
 
 disconnect_db :-
-    % Safely close only if the connection exists
-    (odbc_current_connection(opac, _) -> odbc_disconnect(opac) ; true).
+    % Safely close ONLY if the connection actually exists (prevents existence_error crashes)
+    ( catch(odbc_current_connection(opac, _), _, fail) -> 
+        odbc_disconnect(opac) 
+    ; true ).
 
 % -------------------------------------------------
-% LOAD DATA FROM SQL → PROLOG (WITH EXPLICIT MAPPING)
+% LOAD DATA FROM SQL → PROLOG
 % -------------------------------------------------
 
 load_data :-
@@ -30,7 +32,7 @@ load_data :-
         retractall(loan(_, _, _, _, _, _)),
         retractall(librarian(_, _, _)),
 
-        % 2. Load Books (Explicit columns for stability)
+        % 2. Load Books
         forall(
             odbc_query(opac, 
                 'SELECT book_id, title, author, year_published, copies, dewey_decimal FROM books', 
@@ -64,10 +66,10 @@ load_data :-
     ), 
     Error, 
     (
-        % Catch and display any ODBC or Logic errors
+        % Catch and display any ODBC or Logic errors, safely disconnect without crashing
         format('>> [LOAD ERROR] Failed to sync SQL: ~w~n', [Error]),
-        disconnect_db,
-        fail % Signal to app.pl that loading failed
+        disconnect_db
+        % Note: 'fail' removed here so app.pl main_menu still loads even if DB is offline.
     )).
 
 % -------------------------------------------------
@@ -76,10 +78,10 @@ load_data :-
 
 save_data :-
     write('--- Saving to SQL Database ---'), nl,
-    connect_db,
+    ( catch(connect_db, _, fail) -> true ; write('>> [SAVE ERROR] Could not connect to database.'), nl, fail ),
     
     % Turn off autocommit to treat the following as a single Atomic Transaction
-    odbc_set_connection(opac, autocommit(false)),
+    catch(odbc_set_connection(opac, autocommit(false)), _, true),
     
     catch((
         % 1. Clear SQL Tables before sync
@@ -107,15 +109,15 @@ save_data :-
 
         % 6. If all successful, Commit
         odbc_commit(opac),
-        write('>> [SUCCESS] Database transaction committed.'), nl
+        write('>> [SUCCESS] Database transaction committed.'), nl,
+        catch(odbc_set_connection(opac, autocommit(true)), _, true),
+        disconnect_db
     ), 
     Error, 
     (
         % If ANY insert fails, undo everything to prevent partial data (Data Integrity)
-        odbc_rollback(opac),
-        format('>> [SAVE ERROR] Transaction rolled back: ~w~n', [Error])
-    )),
-    
-    % Restore connection state and close
-    odbc_set_connection(opac, autocommit(true)),
-    disconnect_db.
+        catch(odbc_rollback(opac), _, true),
+        format('>> [SAVE ERROR] Transaction rolled back: ~w~n', [Error]),
+        catch(odbc_set_connection(opac, autocommit(true)), _, true),
+        disconnect_db
+    )).
