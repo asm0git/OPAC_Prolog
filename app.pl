@@ -1,5 +1,11 @@
 :- initialization(start).
 
+% MASTER SCHEMA (Required for SQL integration)
+:- dynamic book/6.
+:- dynamic borrower/3.
+:- dynamic loan/6.
+:- dynamic librarian/3.
+
 :- ensure_loaded(storage).
 :- ensure_loaded(books).
 :- ensure_loaded(loans).

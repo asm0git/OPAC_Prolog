@@ -1,7 +1,3 @@
-:- dynamic loan/6.
-
-:- dynamic borrower/3.
-
 
 %% parse_date(+'YYYY-MM-DD', -Y, -M, -D)
 parse_date(DateStr, Y, M, D) :-
