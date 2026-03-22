@@ -230,41 +230,41 @@ list_borrowers :-
 % =============================================================
 
 borrow_book :-
-    write('--- Borrow Book ---'), nl,
-    write('Enter Book ID: '), read(BookID),
+    nl, write('--- Borrow Book ---'), nl,
+    read_integer('Enter Book ID    : ', BookID),
 
     ( \+ book(BookID, _, _, _, _, _) ->
-        write('Error: Book not found.'), nl
+        format('[ERROR] Book ID ~w not found.~n', [BookID])
     ;
         ( loan(_, BookID, _, _, _, none) ->
-            write('Error: This book already has an active loan.'), nl
+            write('[ERROR] This book already has an active loan.'), nl
         ;
             book(BookID, Title, Author, Year, Copies, Dewey),
             ( Copies =< 0 ->
-                write('Error: No available copies.'), nl
+                write('[ERROR] No available copies.'), nl
             ;
-                write('Enter Borrower ID: '), read(BorrowerID),
+                read_integer('Enter Borrower ID: ', BorrowerID),
                 ( \+ borrower(BorrowerID, _, _) ->
-                    write('Error: Borrower not found.'), nl
+                    format('[ERROR] Borrower ID ~w not found.~n', [BorrowerID])
                 ;
-                    write('Borrow Date (YYYY-MM-DD): '), read(BorrowDate),
+                    read_date('Borrow Date (YYYY-MM-DD): ', BorrowDate),
                     add_days_to_date(BorrowDate, 7, DueDate),
                     next_loan_id(LoanID),
-                    assertz(loan(LoanID, BookID, BorrowerID, BorrowDate, DueDate, none)),
-
-                    % Decrease available copies
-                    retract(book(BookID, Title, Author, Year, Copies, Dewey)),
-                    NewCopies is Copies - 1,
-                    assertz(book(BookID, Title, Author, Year, NewCopies, Dewey)),
-
-                    format('Loan #~w created. Due date: ~w~n', [LoanID, DueDate]),
-                    write('Book borrowed successfully.'), nl
+                    ( sql_insert_loan(LoanID, BookID, BorrowerID, BorrowDate, DueDate) ->
+                        assertz(loan(LoanID, BookID, BorrowerID, BorrowDate, DueDate, none)),
+                        retract(book(BookID, Title, Author, Year, Copies, Dewey)),
+                        NewCopies is Copies - 1,
+                        assertz(book(BookID, Title, Author, Year, NewCopies, Dewey)),
+                        sql_update_book_copies(BookID, NewCopies),
+                        format('[INFO] Loan #~w created. Due date: ~w~n', [LoanID, DueDate])
+                    ;
+                        write('[ERROR] Failed to save loan to database.'), nl
+                    )
                 )
             )
         )
-        )
     ).
-
+    
 % =============================================================
 % RETURN BOOK
 % =============================================================
