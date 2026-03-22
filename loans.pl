@@ -133,6 +133,61 @@ next_loan_id(ID) :-
     ( IDs = [] -> ID = 1 ; max_list(IDs, Max), ID is Max + 1 ).
 
 % =============================================================
+% SQL HELPERS
+% =============================================================
+
+sql_insert_loan(LID, BkID, BrID, Borrowed, Due) :-
+    catch((
+        connect_db,
+        atom_string(BorrowedStr, Borrowed),
+        atom_string(DueStr, Due),
+        odbc_query(opac,
+            'INSERT INTO loans (loan_id, book_id, borrower_id, date_borrowed, due_date, date_returned) VALUES (?,?,?,?,?,NULL)',
+            [LID, BkID, BrID, BorrowedStr, DueStr]),
+        disconnect_db
+    ), Error, (
+        format('[DB ERROR] insert loan: ~w~n', [Error]),
+        disconnect_db, fail
+    )).
+
+sql_return_loan(LoanID, ReturnDate) :-
+    catch((
+        connect_db,
+        atom_string(RetStr, ReturnDate),
+        odbc_query(opac,
+            'UPDATE loans SET date_returned=? WHERE loan_id=?',
+            [RetStr, LoanID]),
+        disconnect_db
+    ), Error, (
+        format('[DB ERROR] return loan: ~w~n', [Error]),
+        disconnect_db, fail
+    )).
+
+sql_update_book_copies(BookID, NewCopies) :-
+    catch((
+        connect_db,
+        odbc_query(opac,
+            'UPDATE books SET copies=? WHERE book_id=?',
+            [NewCopies, BookID]),
+        disconnect_db
+    ), Error, (
+        format('[DB ERROR] update copies: ~w~n', [Error]),
+        disconnect_db, fail
+    )).
+
+sql_insert_borrower(BID, Name, Course) :-
+    catch((
+        connect_db,
+        odbc_query(opac,
+            'INSERT INTO borrowers (borrower_id, name, course) VALUES (?,?,?)',
+            [BID, Name, Course]),
+        disconnect_db
+    ), Error, (
+        format('[DB ERROR] insert borrower: ~w~n', [Error]),
+        disconnect_db, fail
+    )).
+
+% =============================================================
 % ADD BORROWER
 % =============================================================
 
