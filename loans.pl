@@ -359,11 +359,14 @@ compute_overdue_fee :-
 % =============================================================
 
 list_loans :-
-    write('----------------------------------------------------------------'), nl,
-    write('LoanID | BookID | BorrowerID | Borrowed   | Due        | Returned'), nl,
-    write('----------------------------------------------------------------'), nl,
+    nl,
+    write('================================================================================'), nl,
+    format('~w~t~8| ~w~t~16| ~w~t~28| ~w~t~40| ~w~t~52| ~w~n',
+           ['LoanID', 'BookID', 'BorrowerID', 'Borrowed', 'Due', 'Returned']),
+    write('================================================================================'), nl,
     ( loan(LID, BkID, BrID, Borrowed, Due, Ret),
-      format('~w      | ~w      | ~w          | ~w | ~w | ', [LID, BkID, BrID, Borrowed, Due]),
-      ( Ret = none -> write('(active)') ; write(Ret) ),
-      nl, fail ; true ),
-    write('----------------------------------------------------------------'), nl.
+      ( Ret = none -> RetDisplay = '(active)' ; RetDisplay = Ret ),
+      format('~w~t~8| ~w~t~16| ~w~t~28| ~w~t~40| ~w~t~52| ~w~n',
+             [LID, BkID, BrID, Borrowed, Due, RetDisplay]),
+      fail ; true ),
+    write('================================================================================'), nl.
