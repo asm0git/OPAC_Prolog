@@ -270,33 +270,34 @@ borrow_book :-
 % =============================================================
 
 return_book :-
-    write('--- Return Book ---'), nl,
-    write('Enter Loan ID: '), read(LoanID),
+    nl, write('--- Return Book ---'), nl,
+    read_integer('Enter Loan ID: ', LoanID),
 
     ( loan(LoanID, BookID, BorrowerID, BorrowDate, DueDate, none) ->
-        write('Return Date (YYYY-MM-DD): '), read(ReturnDate),
-
-        retract(loan(LoanID, BookID, BorrowerID, BorrowDate, DueDate, none)),
-        assertz(loan(LoanID, BookID, BorrowerID, BorrowDate, DueDate, ReturnDate)),
-
-        % Restore copy count
-        book(BookID, Title, Author, Year, Copies, Dewey),
-        retract(book(BookID, Title, Author, Year, Copies, Dewey)),
-        NewCopies is Copies + 1,
-        assertz(book(BookID, Title, Author, Year, NewCopies, Dewey)),
-
-        compute_fee_for_loan(DueDate, ReturnDate, Fee),
-        ( Fee =:= 0 ->
-            write('Returned on time. No fee.'), nl
+        read_date('Return Date (YYYY-MM-DD): ', ReturnDate),
+        ( sql_return_loan(LoanID, ReturnDate) ->
+            retract(loan(LoanID, BookID, BorrowerID, BorrowDate, DueDate, none)),
+            assertz(loan(LoanID, BookID, BorrowerID, BorrowDate, DueDate, ReturnDate)),
+            book(BookID, Title, Author, Year, Copies, Dewey),
+            retract(book(BookID, Title, Author, Year, Copies, Dewey)),
+            NewCopies is Copies + 1,
+            assertz(book(BookID, Title, Author, Year, NewCopies, Dewey)),
+            sql_update_book_copies(BookID, NewCopies),
+            compute_fee_for_loan(DueDate, ReturnDate, Fee),
+            ( Fee =:= 0 ->
+                write('[INFO] Returned on time. No fee.'), nl
+            ;
+                days_between(DueDate, ReturnDate, DaysLate),
+                format('[INFO] Returned ~w day(s) late. Fee: P~2f~n', [DaysLate, Fee])
+            )
         ;
-            days_between(DueDate, ReturnDate, DaysLate),
-            format('Returned ~w day(s) late. Fee: P~2f~n', [DaysLate, Fee])
+            write('[ERROR] Failed to update loan in database.'), nl
         )
     ;
         ( loan(LoanID, _, _, _, _, Returned), Returned \= none ->
-            write('This loan has already been returned.'), nl
+            write('[ERROR] This loan has already been returned.'), nl
         ;
-            write('Loan ID not found.'), nl
+            format('[ERROR] Loan ID ~w not found.~n', [LoanID])
         )
     ).
 
