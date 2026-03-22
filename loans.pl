@@ -317,8 +317,8 @@ compute_fee_for_loan(DueDate, CheckDate, Fee) :-
 
 %% compute_overdue_fee/0 — interactive
 compute_overdue_fee :-
-    write('--- Compute Overdue Fee ---'), nl,
-    write('Enter Loan ID: '), read(LoanID),
+    nl, write('--- Compute Overdue Fee ---'), nl,
+    read_integer('Enter Loan ID: ', LoanID),
 
     ( loan(LoanID, BookID, BorrowerID, BorrowDate, DueDate, DateReturned) ->
         borrower(BorrowerID, Name, _),
@@ -351,7 +351,7 @@ compute_overdue_fee :-
             )
         )
     ;
-        write('Loan ID not found.'), nl
+        format('[ERROR] Loan ID ~w not found.~n', [LoanID])
     ).
 
 % =============================================================
