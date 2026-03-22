@@ -1,3 +1,8 @@
+:- dynamic loan/6.
+% loan(LoanID, BookID, BorrowerID, DateBorrowed, DueDate, DateReturned).
+
+:- dynamic borrower/3.
+% borrower(BorrowerID, Name, Course).
 
 %% parse_date(+'YYYY-MM-DD', -Y, -M, -D)
 parse_date(DateStr, Y, M, D) :-
