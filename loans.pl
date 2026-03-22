@@ -192,15 +192,23 @@ sql_insert_borrower(BID, Name, Course) :-
 % =============================================================
 
 add_borrower :-
-    write('--- Add Borrower ---'), nl,
-    write('Borrower ID: '), read(BID),
+    nl, write('--- Add Borrower ---'), nl,
+    read_integer('Borrower ID  : ', BID),
     ( borrower(BID, _, _) ->
-        write('Error: Borrower ID already exists.'), nl
+        format('[ERROR] Borrower ID ~w already exists.~n', [BID])
     ;
-        write('Name: '), read(Name),
-        write('Course: '), read(Course),
-        assertz(borrower(BID, Name, Course)),
-        write('Borrower added successfully.'), nl
+        read_text('Name         : ', Name),
+        ( Name = '' ->
+            write('[ERROR] Name cannot be blank.'), nl
+        ;
+            read_text('Course       : ', Course),
+            ( sql_insert_borrower(BID, Name, Course) ->
+                assertz(borrower(BID, Name, Course)),
+                write('[INFO] Borrower added successfully.'), nl
+            ;
+                write('[ERROR] Failed to save borrower to database.'), nl
+            )
+        )
     ).
 
 % =============================================================
