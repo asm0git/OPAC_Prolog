@@ -104,7 +104,28 @@ add_days_to_date(DateStr, N, NewDateStr) :-
 
 %% get_today(-'YYYY-MM-DD')
 get_today(DateStr) :-
-    write('Enter today''s date (YYYY-MM-DD): '), read(DateStr).
+    read_date('Enter today''s date (YYYY-MM-DD): ', DateStr).
+
+read_date(Prompt, DateAtom) :-
+    repeat,
+    write(Prompt),
+    read_line_to_string(user_input, Raw),
+    normalize_space(string(Clean), Raw),
+    atom_string(A, Clean),
+    ( valid_date_format(A) ->
+        DateAtom = A, !
+    ;
+        write('[ERROR] Enter a valid date in YYYY-MM-DD format (e.g. 2026-03-19).'), nl,
+        fail
+    ).
+
+valid_date_format(A) :-
+    atom_length(A, 10),
+    sub_atom(A, 4, 1, _, '-'),
+    sub_atom(A, 7, 1, _, '-'),
+    parse_date(A, _, M, D),
+    M >= 1, M =< 12,
+    D >= 1, D =< 31.
 
 %% next_loan_id(-ID)
 next_loan_id(ID) :-
