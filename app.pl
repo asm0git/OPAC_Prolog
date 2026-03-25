@@ -21,9 +21,8 @@ main_menu :-
     draw_main_header,
     write('1. Login as User'), nl,
     write('2. Login as Librarian'), nl,
-    write('3. Save Data'), nl,
-    write('4. Exit'), nl,
-    read_menu_choice(1, 4, Choice),
+    write('3. Exit'), nl,
+    read_menu_choice(1, 3, Choice),
     handle_main_choice(Choice, Action),
     ( Action = exit -> ! ; fail ).
 
@@ -33,9 +32,7 @@ handle_main_choice(1, continue) :-
 handle_main_choice(2, continue) :-
     login('LIBRARIAN'),
     librarian_menu, !.
-handle_main_choice(3, continue) :-
-    (save_data -> info('Data saved successfully.') ; info('Failed to save data.')).
-handle_main_choice(4, exit) :-
+handle_main_choice(3, exit) :-
     (save_data -> info('Data saved. Goodbye!') ; info('Failed to save data. Goodbye!')).
 
 login(Role) :-
@@ -50,17 +47,15 @@ user_menu :-
     write('1. Search Books'), nl,
     write('2. List All Books'), nl,
     write('3. Loans'), nl,
-    write('4. Save Data'), nl,
-    write('5. Logout'), nl,
-    read_menu_choice(1, 5, Choice),
+    write('4. Logout'), nl,
+    read_menu_choice(1, 4, Choice),
     handle_user_choice(Choice, Action),
     ( Action = back -> ! ; fail ).
 
 handle_user_choice(1, continue) :- search_menu, !.
 handle_user_choice(2, continue) :- list_books, pause.
 handle_user_choice(3, continue) :- loans_menu.
-handle_user_choice(4, continue) :- (save_data -> info('Data saved successfully.') ; info('Failed to save data.')).
-handle_user_choice(5, back) :- info('Logged out from user account.').
+handle_user_choice(4, back) :- info('Logged out from user account.').
 
 librarian_menu :-
     repeat,
@@ -71,9 +66,8 @@ librarian_menu :-
     write('4. List All Books'), nl,
     write('5. Search Books'), nl,
     write('6. Loans'), nl,
-    write('7. Save Data'), nl,
-    write('8. Logout'), nl,
-    read_menu_choice(1, 8, Choice),
+    write('7. Logout'), nl,
+    read_menu_choice(1, 7, Choice),
     handle_librarian_choice(Choice, Action),
     ( Action = back -> ! ; fail ).
 
@@ -83,8 +77,7 @@ handle_librarian_choice(3, continue) :- delete_book, pause.
 handle_librarian_choice(4, continue) :- list_books, pause.
 handle_librarian_choice(5, continue) :- search_menu.
 handle_librarian_choice(6, continue) :- loans_menu.
-handle_librarian_choice(7, continue) :- (save_data -> info('Data saved successfully.') ; info('Failed to save data.')).
-handle_librarian_choice(8, back) :- info('Logged out from librarian account.').
+handle_librarian_choice(7, back) :- info('Logged out from librarian account.').
 
 search_menu :-
     repeat,

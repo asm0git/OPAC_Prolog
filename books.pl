@@ -37,10 +37,9 @@ add_book :-
 sql_insert_book(ID, Title, Author, Year, Copies, Dewey) :-
     catch((
         connect_db,
-        format('Inserting book: ~w ~w ~w ~w ~w ~w~n', [ID, Title, Author, Year, Copies, Dewey]),
-        odbc_query(opac,
-            'INSERT INTO books VALUES (?,?,?,?,?,?)',
-            [ID, Title, Author, Year, Copies, Dewey]),
+        format(atom(SQL), 'INSERT INTO books (book_id, title, author, year_published, copies, dewey_decimal) VALUES (~w, \'~w\', \'~w\', ~w, ~w, ~w)', [ID, Title, Author, Year, Copies, Dewey]),
+        format('SQL: ~w~n', [SQL]),
+        odbc_query(opac, SQL),
         disconnect_db
     ), Error, (
         format('[DB ERROR] add book: ~w~n', [Error]),
@@ -70,9 +69,9 @@ edit_book :-
         nl, write('(Press Enter to keep current value)'), nl,
         read_text_or_keep('New Title        : ', OldTitle,   NewTitle),
         read_text_or_keep('New Author       : ', OldAuthor,  NewAuthor),
-        read_int_or_keep ('New Year         : ', OldYear,    NewYear),
-        read_int_or_keep ('New Copies       : ', OldCopies,  NewCopies),
-        read_num_or_keep ('New Dewey Number : ', OldDewey,   NewDewey),
+        read_int_or_keep('New Year         : ', OldYear,    NewYear),
+        read_int_or_keep('New Copies       : ', OldCopies,  NewCopies),
+        read_num_or_keep('New Dewey Number : ', OldDewey,   NewDewey),
         ( sql_update_book(ID, NewTitle, NewAuthor, NewYear, NewCopies, NewDewey) ->
             retract(book(ID, OldTitle, OldAuthor, OldYear, OldCopies, OldDewey)),
             assertz(book(ID, NewTitle, NewAuthor, NewYear, NewCopies, NewDewey)),

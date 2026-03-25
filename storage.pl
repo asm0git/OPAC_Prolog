@@ -80,9 +80,6 @@ save_data :-
     write('--- Saving to SQL Database ---'), nl,
     ( catch(connect_db, _, fail) -> true ; write('>> [SAVE ERROR] Could not connect to database.'), nl, fail ),
     
-    % Turn off autocommit to treat the following as a single Atomic Transaction
-    catch(odbc_set_connection(opac, autocommit(false)), _, true),
-    
     catch((
         % 1. Clear SQL Tables before sync
         odbc_query(opac, 'DELETE FROM loans'),
@@ -109,18 +106,13 @@ save_data :-
         forall(librarian(ID, N, P),
                odbc_query(opac, 'INSERT INTO librarians VALUES (?,?,?)', [ID, N, P])),
 
-        % 6. If all successful, Commit
-        odbc_commit(opac),
-        write('>> [SUCCESS] Database transaction committed.'), nl,
-        catch(odbc_set_connection(opac, autocommit(true)), _, true),
+        % 6. If all successful
+        write('>> [SUCCESS] Database updated.'), nl,
         disconnect_db
     ), 
     Error, 
     (
-        % If ANY insert fails, undo everything to prevent partial data (Data Integrity)
-        catch(odbc_rollback(opac), _, true),
-        format('>> [SAVE ERROR] Transaction rolled back: ~w~n', [Error]),
-        catch(odbc_set_connection(opac, autocommit(true)), _, true),
+        format('>> [SAVE ERROR] Failed to update database: ~w~n', [Error]),
         disconnect_db,
         fail  % Fail the save_data predicate on error
     )).
