@@ -89,22 +89,27 @@ save_data :-
 
         % 2. Sync Books
         forall(book(ID, T, A, Y, C, D),
-               odbc_query(opac, 'INSERT INTO books VALUES (?,?,?,?,?,?)', [ID, T, A, Y, C, D])),
+               ( format(atom(SQL), 'INSERT INTO books VALUES (~w, \'~w\', \'~w\', ~w, ~w, ~w)', [ID, T, A, Y, C, D]),
+                 odbc_query(opac, SQL) )),
 
         % 3. Sync Borrowers
         forall(borrower(ID, N, C),
-               odbc_query(opac, 'INSERT INTO borrowers VALUES (?,?,?)', [ID, N, C])),
+               ( format(atom(SQL), 'INSERT INTO borrowers VALUES (~w, \'~w\', \'~w\')', [ID, N, C]),
+                 odbc_query(opac, SQL) )),
 
         % 4. Sync Loans (Map 'none' back to SQL NULL)
         forall(loan(LID, BID, BrID, DB, DD, Ret),
                ( Ret == none ->
-                   odbc_query(opac, 'INSERT INTO loans VALUES (?,?,?,?,?,NULL)', [LID, BID, BrID, DB, DD])
-                 ; odbc_query(opac, 'INSERT INTO loans VALUES (?,?,?,?,?,?)', [LID, BID, BrID, DB, DD, Ret])
+                   format(atom(SQL), 'INSERT INTO loans VALUES (~w, ~w, ~w, \'~w\', \'~w\', NULL)', [LID, BID, BrID, DB, DD]),
+                   odbc_query(opac, SQL)
+                 ; format(atom(SQL), 'INSERT INTO loans VALUES (~w, ~w, ~w, \'~w\', \'~w\', \'~w\')', [LID, BID, BrID, DB, DD, Ret]),
+                   odbc_query(opac, SQL)
                )),
 
         % 5. Sync Librarians
         forall(librarian(ID, N, P),
-               odbc_query(opac, 'INSERT INTO librarians VALUES (?,?,?)', [ID, N, P])),
+               ( format(atom(SQL), 'INSERT INTO librarians VALUES (~w, \'~w\', \'~w\')', [ID, N, P]),
+                 odbc_query(opac, SQL) )),
 
         % 6. If all successful
         write('>> [SUCCESS] Database updated.'), nl,

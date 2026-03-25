@@ -144,11 +144,8 @@ next_loan_id(ID) :-
 sql_insert_loan(LID, BkID, BrID, Borrowed, Due) :-
     catch((
         connect_db,
-        atom_string(BorrowedStr, Borrowed),
-        atom_string(DueStr, Due),
-        odbc_query(opac,
-            'INSERT INTO loans (loan_id, book_id, borrower_id, date_borrowed, due_date, date_returned) VALUES (?,?,?,?,?,NULL)',
-            [LID, BkID, BrID, BorrowedStr, DueStr]),
+        format(atom(SQL), 'INSERT INTO loans (loan_id, book_id, borrower_id, date_borrowed, due_date, date_returned) VALUES (~w, ~w, ~w, \'~w\', \'~w\', NULL)', [LID, BkID, BrID, Borrowed, Due]),
+        odbc_query(opac, SQL),
         disconnect_db
     ), Error, (
         format('[DB ERROR] insert loan: ~w~n', [Error]),
@@ -158,10 +155,8 @@ sql_insert_loan(LID, BkID, BrID, Borrowed, Due) :-
 sql_return_loan(LoanID, ReturnDate) :-
     catch((
         connect_db,
-        atom_string(RetStr, ReturnDate),
-        odbc_query(opac,
-            'UPDATE loans SET date_returned=? WHERE loan_id=?',
-            [RetStr, LoanID]),
+        format(atom(SQL), 'UPDATE loans SET date_returned=\'~w\' WHERE loan_id=~w', [ReturnDate, LoanID]),
+        odbc_query(opac, SQL),
         disconnect_db
     ), Error, (
         format('[DB ERROR] return loan: ~w~n', [Error]),
@@ -171,9 +166,8 @@ sql_return_loan(LoanID, ReturnDate) :-
 sql_update_book_copies(BookID, NewCopies) :-
     catch((
         connect_db,
-        odbc_query(opac,
-            'UPDATE books SET copies=? WHERE book_id=?',
-            [NewCopies, BookID]),
+        format(atom(SQL), 'UPDATE books SET copies=~w WHERE book_id=~w', [NewCopies, BookID]),
+        odbc_query(opac, SQL),
         disconnect_db
     ), Error, (
         format('[DB ERROR] update copies: ~w~n', [Error]),
@@ -183,9 +177,8 @@ sql_update_book_copies(BookID, NewCopies) :-
 sql_insert_borrower(BID, Name, Course) :-
     catch((
         connect_db,
-        odbc_query(opac,
-            'INSERT INTO borrowers (borrower_id, name, course) VALUES (?,?,?)',
-            [BID, Name, Course]),
+        format(atom(SQL), 'INSERT INTO borrowers (borrower_id, name, course) VALUES (~w, \'~w\', \'~w\')', [BID, Name, Course]),
+        odbc_query(opac, SQL),
         disconnect_db
     ), Error, (
         format('[DB ERROR] insert borrower: ~w~n', [Error]),

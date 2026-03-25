@@ -86,9 +86,8 @@ edit_book :-
 sql_update_book(ID, Title, Author, Year, Copies, Dewey) :-
     catch((
         connect_db,
-        odbc_query(opac,
-            'UPDATE books SET title=?, author=?, year_published=?, copies=?, dewey_decimal=? WHERE book_id=?',
-            [Title, Author, Year, Copies, Dewey, ID]),
+        format(atom(SQL), 'UPDATE books SET title=\'~w\', author=\'~w\', year_published=~w, copies=~w, dewey_decimal=~w WHERE book_id=~w', [Title, Author, Year, Copies, Dewey, ID]),
+        odbc_query(opac, SQL),
         disconnect_db
     ), Error, (
         format('[DB ERROR] edit book: ~w~n', [Error]),
@@ -126,7 +125,8 @@ delete_book :-
 sql_delete_book(ID) :-
     catch((
         connect_db,
-        odbc_query(opac, 'DELETE FROM books WHERE book_id=?', [ID]),
+        format(atom(SQL), 'DELETE FROM books WHERE book_id=~w', [ID]),
+        odbc_query(opac, SQL),
         disconnect_db
     ), Error, (
         format('[DB ERROR] delete book: ~w~n', [Error]),
