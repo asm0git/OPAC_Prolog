@@ -34,11 +34,9 @@ handle_main_choice(2, continue) :-
     login('LIBRARIAN'),
     librarian_menu, !.
 handle_main_choice(3, continue) :-
-    save_data,
-    info('Data saved successfully.').
+    (save_data -> info('Data saved successfully.') ; info('Failed to save data.')).
 handle_main_choice(4, exit) :-
-    save_data,
-    info('Data saved. Goodbye!').
+    (save_data -> info('Data saved. Goodbye!') ; info('Failed to save data. Goodbye!')).
 
 login(Role) :-
     draw_header(Role),
@@ -61,7 +59,7 @@ user_menu :-
 handle_user_choice(1, continue) :- search_menu, !.
 handle_user_choice(2, continue) :- list_books, pause.
 handle_user_choice(3, continue) :- loans_menu.
-handle_user_choice(4, continue) :- save_data, info('Data saved successfully.').
+handle_user_choice(4, continue) :- (save_data -> info('Data saved successfully.') ; info('Failed to save data.')).
 handle_user_choice(5, back) :- info('Logged out from user account.').
 
 librarian_menu :-
@@ -85,7 +83,7 @@ handle_librarian_choice(3, continue) :- delete_book, pause.
 handle_librarian_choice(4, continue) :- list_books, pause.
 handle_librarian_choice(5, continue) :- search_menu.
 handle_librarian_choice(6, continue) :- loans_menu.
-handle_librarian_choice(7, continue) :- save_data, info('Data saved successfully.').
+handle_librarian_choice(7, continue) :- (save_data -> info('Data saved successfully.') ; info('Failed to save data.')).
 handle_librarian_choice(8, back) :- info('Logged out from librarian account.').
 
 search_menu :-

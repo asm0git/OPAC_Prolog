@@ -100,8 +100,10 @@ save_data :-
 
         % 4. Sync Loans (Map 'none' back to SQL NULL)
         forall(loan(LID, BID, BrID, DB, DD, Ret),
-               ( (Ret == none -> SQLRet = @(null) ; SQLRet = Ret),
-                 odbc_query(opac, 'INSERT INTO loans VALUES (?,?,?,?,?,?)', [LID, BID, BrID, DB, DD, SQLRet]) )),
+               ( Ret == none ->
+                   odbc_query(opac, 'INSERT INTO loans VALUES (?,?,?,?,?,NULL)', [LID, BID, BrID, DB, DD])
+                 ; odbc_query(opac, 'INSERT INTO loans VALUES (?,?,?,?,?,?)', [LID, BID, BrID, DB, DD, Ret])
+               )),
 
         % 5. Sync Librarians
         forall(librarian(ID, N, P),
@@ -119,5 +121,6 @@ save_data :-
         catch(odbc_rollback(opac), _, true),
         format('>> [SAVE ERROR] Transaction rolled back: ~w~n', [Error]),
         catch(odbc_set_connection(opac, autocommit(true)), _, true),
-        disconnect_db
+        disconnect_db,
+        fail  % Fail the save_data predicate on error
     )).

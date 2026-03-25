@@ -37,8 +37,9 @@ add_book :-
 sql_insert_book(ID, Title, Author, Year, Copies, Dewey) :-
     catch((
         connect_db,
+        format('Inserting book: ~w ~w ~w ~w ~w ~w~n', [ID, Title, Author, Year, Copies, Dewey]),
         odbc_query(opac,
-            'INSERT INTO books (book_id, title, author, year_published, copies, dewey_decimal) VALUES (?,?,?,?,?,?)',
+            'INSERT INTO books VALUES (?,?,?,?,?,?)',
             [ID, Title, Author, Year, Copies, Dewey]),
         disconnect_db
     ), Error, (
@@ -49,6 +50,16 @@ sql_insert_book(ID, Title, Author, Year, Copies, Dewey) :-
 % -------------------------------------------------
 % EDIT BOOK
 % -------------------------------------------------
+
+%% read_num_or_keep(+Prompt, +Old, -New)
+read_num_or_keep(Prompt, Old, New) :-
+    write(Prompt),
+    read_line_to_string(user_input, Raw),
+    normalize_space(string(Clean), Raw),
+    ( Clean = '' -> New = Old
+    ; catch(number_string(N, Clean), _, fail) -> New = N
+    ; format('[WARN] Invalid number, keeping ~w.~n', [Old]), New = Old
+    ).
 
 edit_book :-
     nl, write('--- Edit Book ---'), nl,
@@ -260,16 +271,6 @@ read_int_or_keep(Prompt, Old, New) :-
     ( Clean = '' -> New = Old
     ; catch(number_string(N, Clean), _, fail), integer(N) -> New = N
     ; format('[WARN] Invalid integer, keeping ~w.~n', [Old]), New = Old
-    ).
-
-%% read_num_or_keep(+Prompt, +Old, -New)
-read_num_or_keep(Prompt, Old, New) :-
-    write(Prompt),
-    read_line_to_string(user_input, Raw),
-    normalize_space(string(Clean), Raw),
-    ( Clean = '' -> New = Old
-    ; catch(number_string(N, Clean), _, fail) -> New = N
-    ; format('[WARN] Invalid number, keeping ~w.~n', [Old]), New = Old
     ).
 
 % -------------------------------------------------

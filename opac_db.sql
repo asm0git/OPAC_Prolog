@@ -26,7 +26,7 @@ CREATE TABLE books (
     author VARCHAR(100),
     year_published INT,
     copies INT DEFAULT 1,
-    dewey_decimal INT -- M1 Requirement
+    dewey_decimal DECIMAL(10,2) -- M1 Requirement
 );
 
 -- Format: borrower(ID, Name, Course)
