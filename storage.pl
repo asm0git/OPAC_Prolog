@@ -1,5 +1,5 @@
 % -------------------------------------------------
-% STORAGE.PL ( SQL VERSION )
+% STORAGE.PL ( SQL VERSION ) FIXED VER
 % -------------------------------------------------
 :- use_module(library(odbc)).
 
