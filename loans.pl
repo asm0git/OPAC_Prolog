@@ -1,8 +1,8 @@
 :- dynamic loan/6.
-% loan(LoanID, BookID, BorrowerID, DateBorrowed, DueDate, DateReturned).
+% loan(LoanID, BookID, StudentNumber, DateBorrowed, DueDate, DateReturned).
 
-:- dynamic borrower/3.
-% borrower(BorrowerID, Name, Course).
+:- dynamic borrower/6.
+% borrower(StudentNumber, Surname, FirstName, MiddleInitial, Department, Password).
 
 %% parse_date(+'YYYY-MM-DD', -Y, -M, -D)
 parse_date(DateStr, Y, M, D) :-
@@ -141,10 +141,10 @@ next_loan_id(ID) :-
 % SQL HELPERS
 % =============================================================
 
-sql_insert_loan(LID, BkID, BrID, Borrowed, Due) :-
+sql_insert_loan(LID, BkID, StudentNo, Borrowed, Due) :-
     catch((
         connect_db,
-        format(atom(SQL), 'INSERT INTO loans (loan_id, book_id, borrower_id, date_borrowed, due_date, date_returned) VALUES (~w, ~w, ~w, \'~w\', \'~w\', NULL)', [LID, BkID, BrID, Borrowed, Due]),
+        format(atom(SQL), 'INSERT INTO loans (loan_id, book_id, student_number, date_borrowed, due_date, date_returned) VALUES (~w, ~w, ~w, \'~w\', \'~w\', NULL)', [LID, BkID, StudentNo, Borrowed, Due]),
         odbc_query(opac, SQL),
         disconnect_db
     ), Error, (
@@ -174,10 +174,10 @@ sql_update_book_copies(BookID, NewCopies) :-
         disconnect_db, fail
     )).
 
-sql_insert_borrower(BID, Name, Course) :-
+sql_insert_borrower(StudentNo, Surname, FirstName, MiddleInitial, Department, Password) :-
     catch((
         connect_db,
-        format(atom(SQL), 'INSERT INTO borrowers (borrower_id, name, course) VALUES (~w, \'~w\', \'~w\')', [BID, Name, Course]),
+        format(atom(SQL), 'INSERT INTO borrowers (student_number, surname, first_name, middle_initial, department, password) VALUES (~w, \'~w\', \'~w\', \'~w\', \'~w\', \'~w\')', [StudentNo, Surname, FirstName, MiddleInitial, Department, Password]),
         odbc_query(opac, SQL),
         disconnect_db
     ), Error, (
@@ -191,17 +191,20 @@ sql_insert_borrower(BID, Name, Course) :-
 
 add_borrower :-
     nl, write('--- Add Borrower ---'), nl,
-    read_integer('Borrower ID  : ', BID),
-    ( borrower(BID, _, _) ->
-        format('[ERROR] Borrower ID ~w already exists.~n', [BID])
+    read_student_number('Student Number: ', StudentNo),
+    ( borrower(StudentNo, _, _, _, _, _) ->
+        format('[ERROR] Student Number ~w already exists.~n', [StudentNo])
     ;
-        read_text('Name         : ', Name),
-        ( Name = '' ->
-            write('[ERROR] Name cannot be blank.'), nl
+        read_text('Surname       : ', Surname),
+        ( Surname = '' ->
+            write('[ERROR] Surname cannot be blank.'), nl
         ;
-            read_text('Course       : ', Course),
-            ( sql_insert_borrower(BID, Name, Course) ->
-                assertz(borrower(BID, Name, Course)),
+            read_text('First Name    : ', FirstName),
+            read_text('Middle Initial: ', MiddleInitial),
+            read_text('Department   : ', Department),
+            read_text('Password     : ', Password),
+            ( sql_insert_borrower(StudentNo, Surname, FirstName, MiddleInitial, Department, Password) ->
+                assertz(borrower(StudentNo, Surname, FirstName, MiddleInitial, Department, Password)),
                 write('[INFO] Borrower added successfully.'), nl
             ;
                 write('[ERROR] Failed to save borrower to database.'), nl
@@ -216,10 +219,11 @@ add_borrower :-
 list_borrowers :-
     nl,
     write('=============================================='), nl,
-    format('~w~t~8| ~w~t~38| ~w~n', ['ID', 'Name', 'Course']),
+        format('~w~t~12| ~w~t~44| ~w~n', ['Student No', 'Name', 'Department']),
     write('=============================================='), nl,
-    ( borrower(BID, Name, Course),
-      format('~w~t~8| ~w~t~38| ~w~n', [BID, Name, Course]),
+        ( borrower(StudentNo, Surname, FirstName, MiddleInitial, Department, _),
+            borrower_full_name(Surname, FirstName, MiddleInitial, FullName),
+            format('~w~t~12| ~w~t~44| ~w~n', [StudentNo, FullName, Department]),
       fail ; true ),
     write('=============================================='), nl.
 
@@ -241,15 +245,15 @@ borrow_book :-
             ( Copies =< 0 ->
                 write('[ERROR] No available copies.'), nl
             ;
-                read_integer('Enter Borrower ID: ', BorrowerID),
-                ( \+ borrower(BorrowerID, _, _) ->
-                    format('[ERROR] Borrower ID ~w not found.~n', [BorrowerID])
+                read_student_number('Enter Student Number: ', StudentNo),
+                ( \+ borrower(StudentNo, _, _, _, _, _) ->
+                    format('[ERROR] Student Number ~w not found.~n', [StudentNo])
                 ;
                     read_date('Borrow Date (YYYY-MM-DD): ', BorrowDate),
                     add_days_to_date(BorrowDate, 7, DueDate),
                     next_loan_id(LoanID),
-                    ( sql_insert_loan(LoanID, BookID, BorrowerID, BorrowDate, DueDate) ->
-                        assertz(loan(LoanID, BookID, BorrowerID, BorrowDate, DueDate, none)),
+                    ( sql_insert_loan(LoanID, BookID, StudentNo, BorrowDate, DueDate) ->
+                        assertz(loan(LoanID, BookID, StudentNo, BorrowDate, DueDate, none)),
                         retract(book(BookID, Title, Author, Year, Copies, Dewey)),
                         NewCopies is Copies - 1,
                         assertz(book(BookID, Title, Author, Year, NewCopies, Dewey)),
@@ -318,10 +322,11 @@ compute_overdue_fee :-
     nl, write('--- Compute Overdue Fee ---'), nl,
     read_integer('Enter Loan ID: ', LoanID),
 
-    ( loan(LoanID, BookID, BorrowerID, BorrowDate, DueDate, DateReturned) ->
-        borrower(BorrowerID, Name, _),
+    ( loan(LoanID, BookID, StudentNo, BorrowDate, DueDate, DateReturned) ->
+        borrower(StudentNo, Surname, FirstName, MiddleInitial, _, _),
+        borrower_full_name(Surname, FirstName, MiddleInitial, FullName),
         book(BookID, Title, _, _, _, _),
-        write('Borrower : '), write(Name), nl,
+        write('Borrower : '), write(FullName), nl,
         write('Book     : '), write(Title), nl,
         write('Borrowed : '), write(BorrowDate), nl,
         write('Due Date : '), write(DueDate), nl,
@@ -352,6 +357,21 @@ compute_overdue_fee :-
         format('[ERROR] Loan ID ~w not found.~n', [LoanID])
     ).
 
+borrower_full_name(Surname, FirstName, MiddleInitial, FullName) :-
+    format(atom(FullName), '~w, ~w ~w.', [Surname, FirstName, MiddleInitial]).
+
+read_student_number(Prompt, StudentNo) :-
+    repeat,
+    read_integer(Prompt, Candidate),
+    ( Candidate >= 10000000,
+      Candidate =< 99999999 ->
+        StudentNo = Candidate,
+        !
+    ;
+        write('[ERROR] Student Number must be exactly 8 digits.'), nl,
+        fail
+    ).
+
 % =============================================================
 % LIST ALL LOANS
 % =============================================================
@@ -360,7 +380,7 @@ list_loans :-
     nl,
     write('================================================================================'), nl,
     format('~w~t~8| ~w~t~16| ~w~t~28| ~w~t~40| ~w~t~52| ~w~n',
-           ['LoanID', 'BookID', 'BorrowerID', 'Borrowed', 'Due', 'Returned']),
+           ['LoanID', 'BookID', 'StudentNo', 'Borrowed', 'Due', 'Returned']),
     write('================================================================================'), nl,
     ( loan(LID, BkID, BrID, Borrowed, Due, Ret),
       ( Ret = none -> RetDisplay = '(active)' ; RetDisplay = Ret ),

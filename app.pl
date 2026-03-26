@@ -2,7 +2,7 @@
 
 % MASTER SCHEMA (Required for SQL integration)
 :- dynamic book/6.
-:- dynamic borrower/3.
+:- dynamic borrower/6.
 :- dynamic loan/6.
 :- dynamic librarian/3.
 
@@ -35,11 +35,50 @@ handle_main_choice(2, continue) :-
 handle_main_choice(3, exit) :-
     (save_data -> info('Data saved. Goodbye!') ; info('Failed to save data. Goodbye!')).
 
-login(Role) :-
-    draw_header(Role),
+login('USER') :-
+    draw_header('USER'),
+    read_student_number('Student Number: ', StudentNo),
+    ( borrower(StudentNo, _, _, _, _, StoredPassword) ->
+        read_text('Password : ', RawPassword),
+        as_string(RawPassword, Password),
+        as_string(StoredPassword, StoredPasswordText),
+        ( Password == StoredPasswordText ->
+            info('Login successful.')
+        ;
+            info('Incorrect password. Login failed.'),
+            fail
+        )
+    ;
+        info('This student number is new.'),
+        ask_yes_no('Do you wish to register? (y/n): ', Answer),
+        ( Answer = yes ->
+            register_new_user(StudentNo)
+        ;
+            info('Registration cancelled.'),
+            fail
+        )
+    ).
+
+login('LIBRARIAN') :-
+    draw_header('LIBRARIAN'),
     read_text('ID Number: ', _),
     read_text('Password : ', _),
     info('Login successful.').
+
+register_new_user(StudentNo) :-
+    read_text('Surname       : ', Surname),
+    read_text('First Name    : ', FirstName),
+    read_text('Middle Initial: ', MiddleInitial),
+    read_text('Department    : ', Department),
+    read_text('Password      : ', RawPassword),
+    as_string(RawPassword, Password),
+    ( sql_insert_borrower(StudentNo, Surname, FirstName, MiddleInitial, Department, Password) ->
+        assertz(borrower(StudentNo, Surname, FirstName, MiddleInitial, Department, Password)),
+        info('Registration successful. Login successful.')
+    ;
+        info('Failed to register account.'),
+        fail
+    ).
 
 user_menu :-
     repeat,
@@ -136,6 +175,45 @@ read_text(Prompt, Text) :-
     write(Prompt),
     read_line_to_string(user_input, Raw),
     normalize_space(string(Text), Raw).
+
+read_student_number(Prompt, StudentNo) :-
+    repeat,
+    read_integer(Prompt, Candidate),
+    ( Candidate >= 10000000,
+      Candidate =< 99999999 ->
+        StudentNo = Candidate,
+        !
+    ;
+        info('Student number must be exactly 8 digits.'),
+        fail
+    ).
+
+ask_yes_no(Prompt, Answer) :-
+    repeat,
+    write(Prompt),
+    read_line_to_string(user_input, Raw),
+    normalize_space(string(Clean), Raw),
+    string_lower(Clean, Lower),
+    ( member(Lower, ["y", "yes"]) ->
+        Answer = yes,
+        !
+    ; member(Lower, ["n", "no"]) ->
+        Answer = no,
+        !
+    ;
+        info('Please answer y or n.'),
+        fail
+    ).
+
+as_string(Value, Text) :-
+    ( string(Value) ->
+        Text = Value
+    ; atom(Value) ->
+        atom_string(Value, Text)
+    ; number(Value) ->
+        number_string(Value, Text)
+    ; format(string(Text), '~w', [Value])
+    ).
 
 draw_header(Title) :-
     nl,

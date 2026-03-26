@@ -28,7 +28,7 @@ load_data :-
 
         % 1. Clear current Prolog memory
         retractall(book(_, _, _, _, _, _)),
-        retractall(borrower(_, _, _)),
+        retractall(borrower(_, _, _, _, _, _)),
         retractall(loan(_, _, _, _, _, _)),
         retractall(librarian(_, _, _)),
 
@@ -42,17 +42,17 @@ load_data :-
 
         % 3. Load Borrowers
         forall(
-            odbc_query(opac, 'SELECT borrower_id, name, course FROM borrowers', row(ID, N, C)),
-            assertz(borrower(ID, N, C))
+            odbc_query(opac, 'SELECT student_number, surname, first_name, middle_initial, department, password FROM borrowers', row(StudentNo, Surname, FirstName, MiddleInitial, Dept, P)),
+            assertz(borrower(StudentNo, Surname, FirstName, MiddleInitial, Dept, P))
         ),
 
         % 4. Load Loans (Handles SQL NULL mapping to Prolog 'none')
         forall(
             odbc_query(opac, 
-                'SELECT loan_id, book_id, borrower_id, date_borrowed, due_date, date_returned FROM loans', 
-                row(LID, BID, BrID, DB, DD, DR)),
+                                'SELECT loan_id, book_id, student_number, date_borrowed, due_date, date_returned FROM loans', 
+                                row(LID, BID, StudentNo, DB, DD, DR)),
             ( (DR == @(null) -> Ret = none ; Ret = DR),
-              assertz(loan(LID, BID, BrID, DB, DD, Ret)) )
+                            assertz(loan(LID, BID, StudentNo, DB, DD, Ret)) )
         ),
 
         % 5. Load Librarians
@@ -92,9 +92,9 @@ save_data :-
                ( format(atom(SQL), 'INSERT INTO books VALUES (~w, \'~w\', \'~w\', ~w, ~w, ~w)', [ID, T, A, Y, C, D]),
                  odbc_query(opac, SQL) )),
 
-        % 3. Sync Borrowers
-        forall(borrower(ID, N, C),
-               ( format(atom(SQL), 'INSERT INTO borrowers VALUES (~w, \'~w\', \'~w\')', [ID, N, C]),
+         % 3. Sync Borrowers
+         forall(borrower(StudentNo, Surname, FirstName, MiddleInitial, Dept, P),
+             ( format(atom(SQL), 'INSERT INTO borrowers (student_number, surname, first_name, middle_initial, department, password) VALUES (~w, \'~w\', \'~w\', \'~w\', \'~w\', \'~w\')', [StudentNo, Surname, FirstName, MiddleInitial, Dept, P]),
                  odbc_query(opac, SQL) )),
 
         % 4. Sync Loans (Map 'none' back to SQL NULL)
