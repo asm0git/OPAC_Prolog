@@ -5,6 +5,7 @@
 :- dynamic borrower/6.
 :- dynamic loan/6.
 :- dynamic librarian/3.
+:- dynamic current_login_name/1.
 
 :- ensure_loaded(storage).
 :- ensure_loaded(books).
@@ -38,11 +39,13 @@ handle_main_choice(3, exit) :-
 login('USER') :-
     draw_header('USER'),
     read_student_number('Student Number: ', StudentNo),
-    ( borrower(StudentNo, _, _, _, _, StoredPassword) ->
+    ( borrower(StudentNo, Surname, FirstName, MiddleInitial, _, StoredPassword) ->
         read_text('Password : ', RawPassword),
         as_string(RawPassword, Password),
         as_string(StoredPassword, StoredPasswordText),
         ( Password == StoredPasswordText ->
+            borrower_full_name(Surname, FirstName, MiddleInitial, FullName),
+            set_current_login_name(FullName),
             info('Login successful.')
         ;
             info('Incorrect password. Login failed.'),
@@ -61,19 +64,22 @@ login('USER') :-
 
 login('LIBRARIAN') :-
     draw_header('LIBRARIAN'),
-    read_text('ID Number: ', _),
+    read_text('ID Number: ', LibrarianID),
     read_text('Password : ', _),
+    format(string(DisplayName), 'Librarian ~w', [LibrarianID]),
+    set_current_login_name(DisplayName),
     info('Login successful.').
 
 register_new_user(StudentNo) :-
-    read_text('Surname       : ', Surname),
-    read_text('First Name    : ', FirstName),
-    read_text('Middle Initial: ', MiddleInitial),
-    read_text('Department    : ', Department),
-    read_text('Password      : ', RawPassword),
-    as_string(RawPassword, Password),
+    read_capitalized_name('Surname       : ', Surname),
+    read_capitalized_name('First Name    : ', FirstName),
+    read_middle_initial('Middle Initial: ', MiddleInitial),
+    read_department_upper('Department    : ', Department),
+    read_password_min8('Password      : ', Password),
     ( sql_insert_borrower(StudentNo, Surname, FirstName, MiddleInitial, Department, Password) ->
         assertz(borrower(StudentNo, Surname, FirstName, MiddleInitial, Department, Password)),
+        borrower_full_name(Surname, FirstName, MiddleInitial, FullName),
+        set_current_login_name(FullName),
         info('Registration successful. Login successful.')
     ;
         info('Failed to register account.'),
@@ -82,7 +88,7 @@ register_new_user(StudentNo) :-
 
 user_menu :-
     repeat,
-    draw_header('USER MENU'),
+    draw_user_menu_header,
     write('1. Search Books'), nl,
     write('2. List All Books'), nl,
     write('3. Loans'), nl,
@@ -94,7 +100,9 @@ user_menu :-
 handle_user_choice(1, continue) :- search_menu, !.
 handle_user_choice(2, continue) :- list_books, pause.
 handle_user_choice(3, continue) :- loans_menu.
-handle_user_choice(4, back) :- info('Logged out from user account.').
+handle_user_choice(4, back) :-
+    retractall(current_login_name(_)),
+    info('Logged out from user account.').
 
 librarian_menu :-
     repeat,
@@ -131,7 +139,7 @@ search_menu :-
 
 handle_search_choice(1, continue) :- search_book_by_title, pause.
 handle_search_choice(2, continue) :- search_title_keyword, pause.
-handle_search_choice(3, continue) :- search_book_by_dewey, pause.
+handle_search_choice(3, continue) :- search_book_by_dewey.
 handle_search_choice(4, back).
 
 loans_menu :-
@@ -175,6 +183,72 @@ read_text(Prompt, Text) :-
     write(Prompt),
     read_line_to_string(user_input, Raw),
     normalize_space(string(Text), Raw).
+
+read_capitalized_name(Prompt, Name) :-
+    repeat,
+    read_text(Prompt, Raw),
+    ( Raw = "" ->
+        info('This field cannot be blank.'),
+        fail
+    ;
+        to_title_case(Raw, Name),
+        !
+    ).
+
+read_middle_initial(Prompt, MiddleInitial) :-
+    repeat,
+    read_text(Prompt, Raw),
+    string_length(Raw, Len),
+    ( Len =:= 1 ->
+        string_upper(Raw, MiddleInitial),
+        !
+    ;
+        info('Middle initial must be exactly one character.'),
+        fail
+    ).
+
+read_department_upper(Prompt, Department) :-
+    repeat,
+    read_text(Prompt, Raw),
+    ( Raw = "" ->
+        info('Department cannot be blank.'),
+        fail
+    ;
+        string_upper(Raw, Department),
+        !
+    ).
+
+read_password_min8(Prompt, Password) :-
+    repeat,
+    read_text(Prompt, Raw),
+    string_length(Raw, Len),
+    ( Len >= 8 ->
+        Password = Raw,
+        !
+    ;
+        info('Password must be at least 8 characters.'),
+        fail
+    ).
+
+to_title_case(Input, Output) :-
+    split_string(Input, " ", " ", Words0),
+    include(non_empty_string, Words0, Words),
+    maplist(capitalize_word, Words, CapWords),
+    atomics_to_string(CapWords, " ", Output).
+
+non_empty_string(S) :-
+    S \= "".
+
+capitalize_word(Word, Capitalized) :-
+    string_lower(Word, Lower),
+    ( Lower = "" ->
+        Capitalized = ""
+    ;
+        sub_string(Lower, 0, 1, _, First),
+        sub_string(Lower, 1, _, 0, Rest),
+        string_upper(First, UpperFirst),
+        string_concat(UpperFirst, Rest, Capitalized)
+    ).
 
 read_student_number(Prompt, StudentNo) :-
     repeat,
@@ -226,6 +300,24 @@ draw_main_header :-
     runtime_stats(Books, ActiveLoans, Mode),
     format('Books: ~w | Active Loans: ~w | Mode: ~w~n', [Books, ActiveLoans, Mode]),
     write('-----------------------------------------------'), nl.
+
+draw_user_menu_header :-
+    nl,
+    write('==============================================='), nl,
+    write('USER MENU'), nl,
+    ( current_login_name(Name) ->
+        format('Student Name: ~w~n', [Name])
+    ;
+        true
+    ),
+    write('==============================================='), nl.
+
+set_current_login_name(Name) :-
+    retractall(current_login_name(_)),
+    assertz(current_login_name(Name)).
+
+borrower_full_name(Surname, FirstName, MiddleInitial, FullName) :-
+    format(string(FullName), '~w, ~w ~w.', [Surname, FirstName, MiddleInitial]).
 
 runtime_stats(Books, ActiveLoans, parallel) :-
     supports_parallel,

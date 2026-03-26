@@ -36,23 +36,35 @@ load_data :-
         forall(
             odbc_query(opac, 
                 'SELECT book_id, title, author, year_published, copies, dewey_decimal FROM books', 
-                row(ID, T, A, Y, C, D)),
-            assertz(book(ID, T, A, Y, C, D))
+                row(RawID, T, A, RawY, RawC, RawD)),
+            (
+                to_number(RawID, ID),
+                to_number(RawY, Y),
+                to_number(RawC, C),
+                to_number(RawD, D),
+                assertz(book(ID, T, A, Y, C, D))
+            )
         ),
 
         % 3. Load Borrowers
         forall(
-            odbc_query(opac, 'SELECT student_number, surname, first_name, middle_initial, department, password FROM borrowers', row(StudentNo, Surname, FirstName, MiddleInitial, Dept, P)),
-            assertz(borrower(StudentNo, Surname, FirstName, MiddleInitial, Dept, P))
+            odbc_query(opac, 'SELECT student_number, surname, first_name, middle_initial, department, password FROM borrowers', row(RawStudentNo, Surname, FirstName, MiddleInitial, Dept, P)),
+            (
+                to_number(RawStudentNo, StudentNo),
+                assertz(borrower(StudentNo, Surname, FirstName, MiddleInitial, Dept, P))
+            )
         ),
 
         % 4. Load Loans (Handles SQL NULL mapping to Prolog 'none')
         forall(
             odbc_query(opac, 
                                 'SELECT loan_id, book_id, student_number, date_borrowed, due_date, date_returned FROM loans', 
-                                row(LID, BID, StudentNo, DB, DD, DR)),
+                                row(RawLID, RawBID, RawStudentNo, DB, DD, DR)),
             ( (DR == @(null) -> Ret = none ; Ret = DR),
-                            assertz(loan(LID, BID, StudentNo, DB, DD, Ret)) )
+              to_number(RawLID, LID),
+              to_number(RawBID, BID),
+              to_number(RawStudentNo, StudentNo),
+              assertz(loan(LID, BID, StudentNo, DB, DD, Ret)) )
         ),
 
         % 5. Load Librarians
@@ -121,3 +133,14 @@ save_data :-
         disconnect_db,
         fail  % Fail the save_data predicate on error
     )).
+
+to_number(Value, Number) :-
+    ( number(Value) ->
+        Number = Value
+    ; atom(Value) ->
+        atom_number(Value, Number)
+    ; string(Value) ->
+        number_string(Number, Value)
+    ; format(string(Text), '~w', [Value]),
+      number_string(Number, Text)
+    ).

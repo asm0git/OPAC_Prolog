@@ -151,12 +151,18 @@ list_books :-
 
 search_book_by_title :-
     nl,
-    read_text('Enter exact title: ', Title),
-    print_book_table('(No matching book found.)',
-        forall(
-            book(ID, Title, Author, Year, Copies, Dewey),
-            print_book_row(ID, Title, Author, Year, Copies, Dewey)
-        )).
+    read_text('Enter exact title: ', QueryTitle),
+    title_key(QueryTitle, QueryKey),
+    findall(row(ID, Title, Author, Year, Copies, Dewey),
+            ( book(ID, Title, Author, Year, Copies, Dewey),
+              title_key(Title, BookKey),
+              QueryKey == BookKey ),
+            Rows),
+    ( Rows = [] ->
+        write('[INFO] No book found.'), nl
+    ;
+        print_full_details_rows(Rows)
+    ).
 
 % -------------------------------------------------
 % SEARCH: TITLE KEYWORD (partial, case-insensitive)
@@ -166,13 +172,16 @@ search_title_keyword :-
     nl,
     read_text('Enter keyword: ', Keyword),
     downcase_atom(Keyword, KeywordLower),
-    print_book_table('(No books matched keyword.)',
-        forall(
+    findall(row(ID, Title, Author, Year, Copies, Dewey),
             ( book(ID, Title, Author, Year, Copies, Dewey),
               downcase_atom(Title, TitleLower),
               sub_atom(TitleLower, _, _, _, KeywordLower) ),
-            print_book_row(ID, Title, Author, Year, Copies, Dewey)
-        )).
+            Rows),
+    ( Rows = [] ->
+        write('[INFO] No book found.'), nl
+    ;
+        print_full_details_rows(Rows)
+    ).
 
 % -------------------------------------------------
 % SEARCH: BY DEWEY NUMBER
@@ -180,12 +189,153 @@ search_title_keyword :-
 
 search_book_by_dewey :-
     nl,
-    read_number('Enter Dewey number: ', Dewey),
-    print_book_table('(No books found with that Dewey number.)',
+    show_dewey_reference,
+    dewey_search_loop.
+
+dewey_search_loop :-
+    read_number('Enter Dewey number, or -1 to return to Search Menu: ', DeweyInput),
+        ( DeweyInput =:= -1 ->
+                true
+        ; query_books_by_exact_dewey(DeweyInput, ExactRows),
+      ExactRows \= [] ->
+        write('[INFO] Exact Dewey match found:'), nl,
+                print_compact_details_rows(ExactRows),
+                dewey_search_loop
+    ;
+      query_books_by_dewey_prefix(DeweyInput, PrefixRows),
+      ( PrefixRows \= [] ->
+            write('[INFO] Matching books (Dewey starts with input):'), nl,
+            print_dewey_shortlist(PrefixRows),
+            handle_shortlist_selection(PrefixRows)
+      ;
+            write('[INFO] No book was found under that Dewey number.'), nl,
+                        dewey_search_loop
+      )
+    ).
+
+query_books_by_exact_dewey(DeweyInput, Rows) :-
+    catch((
+        connect_db,
+        format(atom(SQL),
+               'SELECT book_id, title, author, year_published, copies, dewey_decimal FROM books WHERE dewey_decimal = ~w ORDER BY book_id',
+               [DeweyInput]),
+        findall(row(ID, T, A, Y, C, D), odbc_query(opac, SQL, row(ID, T, A, Y, C, D)), Rows),
+        disconnect_db
+    ), _, (
+        disconnect_db,
+        Rows = []
+    )).
+
+query_books_by_dewey_prefix(DeweyInput, Rows) :-
+    number_string(DeweyInput, DeweyText0),
+    normalize_space(string(DeweyText), DeweyText0),
+    ( sub_string(DeweyText, _, _, _, '.') ->
+        format(atom(PrefixLike), '~w%', [DeweyText])
+    ;
+        format(atom(PrefixLike), '~w.%', [DeweyText])
+    ),
+    catch((
+        connect_db,
+        format(atom(SQL),
+               'SELECT book_id, title, author, year_published, copies, dewey_decimal FROM books WHERE CAST(dewey_decimal AS CHAR) LIKE \'~w\' ORDER BY dewey_decimal, book_id',
+               [PrefixLike]),
+        findall(row(ID, T, A, Y, C, D), odbc_query(opac, SQL, row(ID, T, A, Y, C, D)), Rows),
+        disconnect_db
+    ), _, (
+        disconnect_db,
+        Rows = []
+    )).
+
+print_dewey_shortlist(Rows) :-
+    write('=============================================================='), nl,
+    format('~w~t~8| ~w~t~42| ~w~t~62| ~w~n', ['ID', 'Title', 'Author', 'Dewey']), nl,
+    write('=============================================================='), nl,
+    forall(member(row(ID, T, A, _, _, D), Rows),
+           format('~w~t~8| ~w~t~42| ~w~t~62| ~w~n', [ID, T, A, D])),
+    write('=============================================================='), nl.
+
+handle_shortlist_selection(Rows) :-
+    nl,
+    write('Enter Book ID to view details, or -1 to return to Search Menu: '),
+    read_line_to_string(user_input, Raw),
+    normalize_space(string(Clean), Raw),
+    ( catch(number_string(Choice, Clean), _, fail), integer(Choice) ->
+        ( Choice =:= -1 ->
+            true
+        ; member(row(Choice, _, _, _, _, _), Rows) ->
+            show_full_details_by_id(Choice),
+            dewey_search_loop
+        ;
+            write('[INFO] Book ID not in the list. Try again.'), nl,
+            handle_shortlist_selection(Rows)
+        )
+    ;
+        write('[INFO] Please enter a valid number.'), nl,
+        handle_shortlist_selection(Rows)
+    ).
+
+show_full_details_by_id(BookID) :-
+    catch((
+        connect_db,
+        format(atom(SQL),
+               'SELECT book_id, title, author, year_published, copies, dewey_decimal FROM books WHERE book_id = ~w',
+               [BookID]),
+        ( odbc_query(opac, SQL, row(ID, T, A, Y, C, D)) ->
+            print_compact_details_rows([row(ID, T, A, Y, C, D)])
+        ;
+            write('[INFO] Book not found.'), nl
+        ),
+        disconnect_db
+    ), _, (
+        disconnect_db,
+        write('[INFO] Failed to load full details.'), nl
+    )).
+
+print_full_details_rows(Rows) :-
+    print_book_table('(No matching book found.)',
         forall(
-            book(ID, Title, Author, Year, Copies, Dewey),
-            print_book_row(ID, Title, Author, Year, Copies, Dewey)
+            member(row(ID, T, A, Y, C, D), Rows),
+            ( to_number_or_self(D, DeweyNum),
+              print_book_row(ID, T, A, Y, C, DeweyNum) )
         )).
+
+        print_compact_details_rows(Rows) :-
+            write('================================================================================'), nl,
+            format('~w~t~8| ~w~t~42| ~w~t~62| ~w~t~70| ~w~t~78| ~w~n',
+                ['ID', 'Title', 'Author', 'Year', 'Copies', 'Dewey']), nl,
+            write('================================================================================'), nl,
+            forall(
+             member(row(ID, T, A, Y, C, D), Rows),
+             ( to_number_or_self(D, DeweyNum),
+               format('~w~t~8| ~w~t~42| ~w~t~62| ~w~t~70| ~w~t~78| ~w~n',
+                   [ID, T, A, Y, C, DeweyNum]) )
+            ),
+            write('================================================================================'), nl.
+
+to_number_or_self(Value, Number) :-
+    ( number(Value) ->
+        Number = Value
+    ; atom(Value), catch(atom_number(Value, N), _, fail) ->
+        Number = N
+    ; string(Value), catch(number_string(N, Value), _, fail) ->
+        Number = N
+    ;
+        Number = Value
+    ).
+
+show_dewey_reference :-
+    write('Dewey Categories Reference:'), nl,
+    write('  000-099  Computer Science'), nl,
+    write('  100-199  Philosophy'), nl,
+    write('  200-299  Religion'), nl,
+    write('  300-399  Social Sciences'), nl,
+    write('  400-499  Language'), nl,
+    write('  500-599  Science'), nl,
+    write('  600-699  Technology'), nl,
+    write('  700-799  Arts'), nl,
+    write('  800-899  Literature'), nl,
+    write('  900-999  History'), nl,
+    nl.
 
 % -------------------------------------------------
 % SEARCH: BY DEWEY CATEGORY RANGE
@@ -254,6 +404,11 @@ read_number(Prompt, N) :-
         write('[ERROR] Please enter a valid number.'), nl,
         fail
     ).
+
+title_key(Value, Key) :-
+    format(string(Text), '~w', [Value]),
+    normalize_space(string(Trimmed), Text),
+    string_lower(Trimmed, Key).
 
 %% read_text_or_keep(+Prompt, +Old, -New)  —  Enter keeps current value
 read_text_or_keep(Prompt, Old, New) :-

@@ -195,20 +195,16 @@ add_borrower :-
     ( borrower(StudentNo, _, _, _, _, _) ->
         format('[ERROR] Student Number ~w already exists.~n', [StudentNo])
     ;
-        read_text('Surname       : ', Surname),
-        ( Surname = '' ->
-            write('[ERROR] Surname cannot be blank.'), nl
+        loan_read_capitalized_name('Surname       : ', Surname),
+        loan_read_capitalized_name('First Name    : ', FirstName),
+        loan_read_middle_initial('Middle Initial: ', MiddleInitial),
+        loan_read_department_upper('Department    : ', Department),
+        loan_read_password_min8('Password      : ', Password),
+        ( sql_insert_borrower(StudentNo, Surname, FirstName, MiddleInitial, Department, Password) ->
+            assertz(borrower(StudentNo, Surname, FirstName, MiddleInitial, Department, Password)),
+            write('[INFO] Borrower added successfully.'), nl
         ;
-            read_text('First Name    : ', FirstName),
-            read_text('Middle Initial: ', MiddleInitial),
-            read_text('Department   : ', Department),
-            read_text('Password     : ', Password),
-            ( sql_insert_borrower(StudentNo, Surname, FirstName, MiddleInitial, Department, Password) ->
-                assertz(borrower(StudentNo, Surname, FirstName, MiddleInitial, Department, Password)),
-                write('[INFO] Borrower added successfully.'), nl
-            ;
-                write('[ERROR] Failed to save borrower to database.'), nl
-            )
+            write('[ERROR] Failed to save borrower to database.'), nl
         )
     ).
 
@@ -370,6 +366,74 @@ read_student_number(Prompt, StudentNo) :-
     ;
         write('[ERROR] Student Number must be exactly 8 digits.'), nl,
         fail
+    ).
+
+loan_read_capitalized_name(Prompt, Name) :-
+    repeat,
+    read_text(Prompt, Raw),
+    ( Raw = '' ->
+        write('[ERROR] This field cannot be blank.'), nl,
+        fail
+    ;
+        loan_to_title_case(Raw, Name),
+        !
+    ).
+
+loan_read_middle_initial(Prompt, MiddleInitial) :-
+    repeat,
+    read_text(Prompt, Raw),
+    atom_length(Raw, Len),
+    ( Len =:= 1 ->
+        upcase_atom(Raw, MiddleInitial),
+        !
+    ;
+        write('[ERROR] Middle initial must be exactly one character.'), nl,
+        fail
+    ).
+
+loan_read_department_upper(Prompt, Department) :-
+    repeat,
+    read_text(Prompt, Raw),
+    ( Raw = '' ->
+        write('[ERROR] Department cannot be blank.'), nl,
+        fail
+    ;
+        upcase_atom(Raw, Department),
+        !
+    ).
+
+loan_read_password_min8(Prompt, Password) :-
+    repeat,
+    read_text(Prompt, Raw),
+    atom_length(Raw, Len),
+    ( Len >= 8 ->
+        Password = Raw,
+        !
+    ;
+        write('[ERROR] Password must be at least 8 characters.'), nl,
+        fail
+    ).
+
+loan_to_title_case(InputAtom, OutputAtom) :-
+    atom_string(InputAtom, Input),
+    split_string(Input, " ", " ", Words0),
+    include(loan_non_empty_string, Words0, Words),
+    maplist(loan_capitalize_word, Words, CapWords),
+    atomics_to_string(CapWords, " ", Output),
+    atom_string(OutputAtom, Output).
+
+loan_non_empty_string(S) :-
+    S \= "".
+
+loan_capitalize_word(Word, Capitalized) :-
+    string_lower(Word, Lower),
+    ( Lower = "" ->
+        Capitalized = ""
+    ;
+        sub_string(Lower, 0, 1, _, First),
+        sub_string(Lower, 1, _, 0, Rest),
+        string_upper(First, UpperFirst),
+        string_concat(UpperFirst, Rest, Capitalized)
     ).
 
 % =============================================================
