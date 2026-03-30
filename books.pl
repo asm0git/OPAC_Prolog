@@ -102,14 +102,22 @@ sql_insert_book(ID, Title, Author, Year, Copies, Dewey) :-
 % EDIT BOOK
 % -------------------------------------------------
 
-%% read_num_or_keep(+Prompt, +Old, -New)
+%% read_num_or_keep(+Prompt, +Old, -New)  —  '-' keeps current value, empty input requires re-entry
 read_num_or_keep(Prompt, Old, New) :-
+    repeat,
     write(Prompt),
     read_line_to_string(user_input, Raw),
     normalize_space(string(Clean), Raw),
-    ( Clean = '' -> New = Old
-    ; catch(number_string(N, Clean), _, fail) -> New = N
-    ; format('[WARN] Invalid number, keeping ~w.~n', [Old]), New = Old
+    ( Clean = "-" -> 
+        New = Old, !
+    ; Clean = "" ->
+        write('[ERROR] Please enter a value or "-" to keep current.'), nl,
+        fail
+    ; catch(number_string(N, Clean), _, fail) ->
+        New = N, !
+    ;
+        write('[ERROR] Invalid number. Please try again.'), nl,
+        fail
     ).
 
 edit_book :-
@@ -118,7 +126,7 @@ edit_book :-
     ( book(ID, OldTitle, OldAuthor, OldYear, OldCopies, OldDewey) ->
         format('Current: ~w | ~w | ~w | copies: ~w | dewey: ~w~n',
                [OldTitle, OldAuthor, OldYear, OldCopies, OldDewey]),
-        nl, write('(Press Enter to keep current value)'), nl,
+        nl, write('(Enter "-" to keep current value)'), nl,
         read_text_or_keep('New Title        : ', OldTitle,   NewTitle),
         read_text_or_keep('New Author       : ', OldAuthor,  NewAuthor),
         read_int_or_keep('New Year         : ', OldYear,    NewYear),
@@ -462,21 +470,37 @@ title_key(Value, Key) :-
     normalize_space(string(Trimmed), Text),
     string_lower(Trimmed, Key).
 
-%% read_text_or_keep(+Prompt, +Old, -New)  —  Enter keeps current value
+%% read_text_or_keep(+Prompt, +Old, -New)  —  '-' keeps current value, empty input requires re-entry
 read_text_or_keep(Prompt, Old, New) :-
+    repeat,
     write(Prompt),
     read_line_to_string(user_input, Raw),
     normalize_space(string(Clean), Raw),
-    ( Clean = '' -> atom_string(New, Old) ; atom_string(New, Clean) ).
+    ( Clean = "-" -> 
+        atom_string(New, Old), !
+    ; Clean = "" ->
+        write('[ERROR] Please enter a value or "-" to keep current.'), nl,
+        fail
+    ;
+        atom_string(New, Clean), !
+    ).
 
-%% read_int_or_keep(+Prompt, +Old, -New)
+%% read_int_or_keep(+Prompt, +Old, -New)  —  '-' keeps current value, empty input requires re-entry
 read_int_or_keep(Prompt, Old, New) :-
+    repeat,
     write(Prompt),
     read_line_to_string(user_input, Raw),
     normalize_space(string(Clean), Raw),
-    ( Clean = '' -> New = Old
-    ; catch(number_string(N, Clean), _, fail), integer(N) -> New = N
-    ; format('[WARN] Invalid integer, keeping ~w.~n', [Old]), New = Old
+    ( Clean = "-" -> 
+        New = Old, !
+    ; Clean = "" ->
+        write('[ERROR] Please enter a value or "-" to keep current.'), nl,
+        fail
+    ; catch(number_string(N, Clean), _, fail), integer(N) -> 
+        New = N, !
+    ;
+        write('[ERROR] Invalid integer. Please try again.'), nl,
+        fail
     ).
 
 % -------------------------------------------------
