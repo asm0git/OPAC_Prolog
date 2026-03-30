@@ -1,3 +1,15 @@
+% -------------------------------------------------
+% LOANS.PL
+% Loan lifecycle, date math, borrower registration helpers,
+% and loan reporting for users/librarians.
+%
+% Core responsibilities:
+% 1) Borrow and return transactions
+% 2) Due date and overdue fee computation
+% 3) Loan listing views (user and librarian)
+% 4) SQL synchronization helpers for loan-related writes
+% -------------------------------------------------
+
 :- dynamic loan/7.
 % loan(LoanID, BookID, StudentNumber, DateBorrowed, DueDate, DateReturned, IsReturned).
 
@@ -6,6 +18,7 @@
 
 %% parse_date(+'YYYY-MM-DD', -Y, -M, -D)
 parse_date(DateStr, Y, M, D) :-
+    % Extract fixed-width YYYY-MM-DD components.
     sub_atom(DateStr, 0, 4, _, YA),
     sub_atom(DateStr, 5, 2, _, MA),
     sub_atom(DateStr, 8, 2, _, DA),
@@ -77,6 +90,7 @@ date_to_days(DateStr, Total) :-
 days_between(Date1, Date2, Diff) :-
     date_to_days(Date1, T1),
     date_to_days(Date2, T2),
+    % Positive Diff means Date2 is later than Date1.
     Diff is T2 - T1.
 
 %% date_to_days_start(+Year, -TotalDays)
@@ -155,6 +169,7 @@ valid_date_format(A) :-
 
 %% next_loan_id(-ID)
 next_loan_id(ID) :-
+    % Monotonic ID generation based on current in-memory facts.
     findall(N, loan(N, _, _, _, _, _, _), IDs),
     ( IDs = [] -> ID = 1 ; max_list(IDs, Max), ID is Max + 1 ).
 
@@ -163,6 +178,7 @@ next_loan_id(ID) :-
 % =============================================================
 
 sql_insert_loan(LID, BkID, StudentNo, Borrowed, Due) :-
+    % Store as active loan (date_returned=NULL, is_returned=0).
     catch((
         connect_db,
         format(atom(SQL), 'INSERT INTO loans (loan_id, book_id, student_number, date_borrowed, due_date, date_returned, is_returned) VALUES (~w, ~w, ~w, \'~w\', \'~w\', NULL, 0)', [LID, BkID, StudentNo, Borrowed, Due]),
@@ -283,6 +299,7 @@ borrow_book_loop :-
         ;
             current_student_number(StudentNo),
             read_date('Borrow Date (YYYY-MM-DD): ', BorrowDate),
+            % Current policy: 7-day borrowing window.
             add_days_to_date(BorrowDate, 7, DueDate),
             next_loan_id(LoanID),
             ( sql_insert_loan(LoanID, BookID, StudentNo, BorrowDate, DueDate) ->
@@ -342,6 +359,7 @@ return_book :-
             ( loan(LoanID, BookID, StudentNo, BorrowDate, DueDate, _, 0) ->
                 read_valid_return_date('Return Date (YYYY-MM-DD): ', BorrowDate, ReturnDate),
                 ( sql_return_loan(LoanID, ReturnDate) ->
+                    % Update memory only after SQL write succeeds.
                     retract(loan(LoanID, BookID, StudentNo, BorrowDate, DueDate, _, 0)),
                     assertz(loan(LoanID, BookID, StudentNo, BorrowDate, DueDate, ReturnDate, 1)),
                     book(BookID, Title, Author, Year, Copies, Dewey),
@@ -587,6 +605,7 @@ view_all_active_loans :-
     write('================================================================================'), nl,
     catch(
         (   connect_db,
+            % Active-only rows are queried directly from SQL to reflect latest persisted state.
             SQL = 'SELECT l.loan_id, b.surname, b.first_name, l.book_id, bk.title, bk.author, DATE_FORMAT(l.date_borrowed, "%Y-%m-%d") FROM loans l JOIN borrowers b ON l.student_number = b.student_number JOIN books bk ON l.book_id = bk.book_id WHERE l.is_returned = 0 ORDER BY l.loan_id',
             (   odbc_query(opac, SQL, Row),
                 format_loan_row_librarian(Row),

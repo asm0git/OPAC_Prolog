@@ -1,4 +1,15 @@
 % -------------------------------------------------
+% BOOKS.PL
+% Catalog management and search features.
+%
+% This file handles:
+% 1) Book CRUD operations (add/edit/delete)
+% 2) Input validation for book fields
+% 3) Title and Dewey-based search flows
+% 4) SQL persistence for book records
+% -------------------------------------------------
+
+% -------------------------------------------------
 % BOOK STATUS
 % -------------------------------------------------
 
@@ -90,6 +101,7 @@ add_book :-
     ).
 
 sql_insert_book(ID, Title, Author, Year, Copies, Dewey) :-
+    % Persist new book row first; memory fact is asserted by caller on success.
     catch((
         connect_db,
         format(atom(SQL), 'INSERT INTO books (book_id, title, author, year_published, copies, dewey_decimal) VALUES (~w, \'~w\', \'~w\', ~w, ~w, ~w)', [ID, Title, Author, Year, Copies, Dewey]),
@@ -134,6 +146,7 @@ edit_book :-
         read_int_or_keep('New Year         : ', OldYear,    NewYear),
         read_int_or_keep('New Copies       : ', OldCopies,  NewCopies),
         read_num_or_keep('New Dewey Number : ', OldDewey,   NewDewey),
+        % Keep in-memory and SQL data synchronized after successful update.
         ( sql_update_book(ID, NewTitle, NewAuthor, NewYear, NewCopies, NewDewey) ->
             retract(book(ID, OldTitle, OldAuthor, OldYear, OldCopies, OldDewey)),
             assertz(book(ID, NewTitle, NewAuthor, NewYear, NewCopies, NewDewey)),
@@ -174,6 +187,7 @@ delete_book :-
         normalize_space(string(AnsClean), Ans),
         ( AnsClean = "yes" ->
             ( sql_delete_book(ID) ->
+                % Remove fact only after SQL delete succeeds.
                 retract(book(ID, _, _, _, _, _)),
                 write('[INFO] Book deleted successfully.'), nl
             ;
@@ -201,6 +215,7 @@ sql_delete_book(ID) :-
 
 list_books :-
     nl,
+    % Reuse shared table printer for consistent catalog formatting.
     print_book_table('(No books on record.)',
         forall(
             book(ID, Title, Author, Year, Copies, Dewey),
@@ -217,6 +232,7 @@ search_book_by_title :-
     title_key(QueryTitle, QueryKey),
     findall(row(ID, Title, Author, Year, Copies, Dewey),
             ( book(ID, Title, Author, Year, Copies, Dewey),
+                            % Compare normalized keys so case/spacing variations still match.
               title_key(Title, BookKey),
               QueryKey == BookKey ),
             Rows),
@@ -260,6 +276,7 @@ dewey_search_loop :-
                 true
         ; query_books_by_exact_dewey(DeweyInput, ExactRows),
       ExactRows \= [] ->
+                % Exact matches are shown immediately; prefix lookup is used only as fallback.
         write('[INFO] Exact Dewey match found:'), nl,
                 print_compact_details_rows(ExactRows),
                 dewey_search_loop
@@ -291,6 +308,7 @@ query_books_by_exact_dewey(DeweyInput, Rows) :-
 query_books_by_dewey_prefix(DeweyInput, Rows) :-
     number_string(DeweyInput, DeweyText0),
     normalize_space(string(DeweyText), DeweyText0),
+    % Accept both whole-class input (e.g., 5) and decimal-prefix input (e.g., 5.2).
     ( sub_string(DeweyText, _, _, _, '.') ->
         format(atom(PrefixLike), '~w%', [DeweyText])
     ;

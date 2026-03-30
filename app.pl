@@ -1,3 +1,14 @@
+% -------------------------------------------------
+% APP.PL
+% Entry point and menu controller for the OPAC system.
+%
+% Responsibilities:
+% 1) Initialize in-memory facts from SQL (via storage.pl)
+% 2) Handle authentication and registration flows
+% 3) Route users to book and loan features
+% 4) Save in-memory changes back to SQL on exit
+% -------------------------------------------------
+
 :- initialization(start).
 
 % MASTER SCHEMA (Required for SQL integration)
@@ -15,10 +26,12 @@
 :- use_module(library(aggregate)).
 
 start :-
+    % Load current database state into dynamic facts before showing menus.
     load_data,
     main_menu.
 
 main_menu :-
+    % Main loop exits only when user selects Exit.
     repeat,
     draw_main_header,
     write('1. Login as User'), nl,
@@ -54,6 +67,7 @@ login('USER') :-
             fail
         )
     ;
+        % Unknown student number is treated as a first-time registration path.
         info('This student number is new.'),
         ask_yes_no('Do you wish to register? (y/n): ', Answer),
         ( Answer = yes ->
@@ -83,6 +97,7 @@ login('LIBRARIAN') :-
             fail
         )
     ;
+        % Unknown staff number can be registered immediately.
         info('This staff number is not registered.'),
         ask_yes_no('Do you wish to register as a new librarian? (y/n): ', Answer),
         ( Answer = yes ->
@@ -130,6 +145,7 @@ register_new_librarian(StaffNumber) :-
     ).
 
 user_menu :-
+    % User-only menu for search/list/borrow-return actions.
     repeat,
     draw_user_menu_header,
     write('1. Search Books'), nl,
@@ -149,6 +165,7 @@ handle_user_choice(4, back) :-
     info('Logged out from user account.').
 
 librarian_menu :-
+    % Librarian-only menu for catalog and loan management actions.
     repeat,
     draw_header('LIBRARIAN MENU'),
     write('1. Add Book'), nl,
@@ -212,6 +229,7 @@ read_menu_choice(Min, Max, Choice) :-
         info('Please enter a number.'),
         fail
         ; Lower = "exit" ->
+            % Shortcut: typing "exit" maps to the highest option (usually Back/Exit).
             Choice = Max,
             !
     ; catch(number_string(N, Clean), _, fail),
@@ -226,6 +244,7 @@ read_menu_choice(Min, Max, Choice) :-
     ).
 
 read_text(Prompt, Text) :-
+    % Normalizes user input so downstream predicates receive trimmed text.
     write(Prompt),
     read_line_to_string(user_input, Raw),
     normalize_space(string(Text), Raw).
@@ -277,6 +296,7 @@ read_password_min8(Prompt, Password) :-
     ).
 
 to_title_case(Input, Output) :-
+    % Title-cases each word for cleaner name display/storage.
     split_string(Input, " ", " ", Words0),
     include(non_empty_string, Words0, Words),
     maplist(capitalize_word, Words, CapWords),
@@ -341,6 +361,7 @@ borrower_full_name(Surname, FirstName, MiddleInitial, FullName) :-
     format(atom(FullName), '~w, ~w ~w.', [Surname, FirstName, MiddleInitial]).
 
 as_string(Value, Text) :-
+    % Utility to compare values safely regardless of atom/string/number source.
     ( string(Value) ->
         Text = Value
     ; atom(Value) ->
@@ -358,6 +379,7 @@ draw_header(Title) :-
 
 draw_main_header :-
     draw_header('OPAC - MAIN MENU'),
+    % Lightweight runtime stats shown on every main-menu render.
     runtime_stats(Books, ActiveLoans, Mode),
     format('Books: ~w | Active Loans: ~w | Mode: ~w~n', [Books, ActiveLoans, Mode]),
     write('-----------------------------------------------'), nl.
@@ -393,12 +415,14 @@ runtime_stats(Books, ActiveLoans, sequential) :-
     sequential_runtime_stats(Books, ActiveLoans).
 
 supports_parallel :-
+    % Parallel branch requires thread/message queue support in the current runtime.
     current_predicate(thread_create/3),
     current_predicate(thread_join/2),
     current_predicate(message_queue_create/1),
     current_prolog_flag(threads, true).
 
 parallel_runtime_stats(Books, ActiveLoans) :-
+    % Gather book and active-loan counts concurrently for snappier menu redraw.
     message_queue_create(Q),
     thread_create(send_book_count(Q), TB, []),
     thread_create(send_active_loan_count(Q), TL, []),
@@ -409,6 +433,7 @@ parallel_runtime_stats(Books, ActiveLoans) :-
 
 collect_stats(0, _, Books, Loans, Books, Loans) :- !.
 collect_stats(N, Q, AccBooks, AccLoans, Books, Loans) :-
+    % Collect exactly N metric messages sent by worker threads.
     thread_get_message(Q, metric(Type, Value)),
     ( Type = books ->
         NextBooks = Value,
@@ -436,6 +461,7 @@ sequential_runtime_stats(Books, ActiveLoans) :-
     aggregate_all(count, loan(_, _, _, _, _, _, 0), ActiveLoans).
 
 info(Message) :-
+    % Uniform info-message formatter for consistent CLI output.
     format('~n[INFO] ~w~n', [Message]).
 
 pause :-

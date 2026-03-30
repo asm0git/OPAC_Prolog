@@ -1,5 +1,8 @@
 % -------------------------------------------------
 % STORAGE.PL ( SQL VERSION ) FIXED VER
+% Bridge layer between SQL tables and dynamic Prolog facts.
+% All app modules read/write facts in memory; this file handles
+% loading from SQL at startup and saving back on exit.
 % -------------------------------------------------
 :- use_module(library(odbc)).
 
@@ -30,7 +33,7 @@ load_data :-
         retractall(book(_, _, _, _, _, _)),
         retractall(borrower(_, _, _, _, _, _)),
         retractall(loan(_, _, _, _, _, _, _)),
-        retractall(librarian(_, _, _)),
+        retractall(librarian(_, _, _, _, _, _)),
 
         % 2. Load Books
         forall(
@@ -102,7 +105,8 @@ save_data :-
     ( catch(connect_db, _, fail) -> true ; write('>> [SAVE ERROR] Could not connect to database.'), nl, fail ),
     
     catch((
-        % 1. Clear SQL Tables before sync
+        % 1. Clear SQL tables before full snapshot write.
+        %    This keeps SQL aligned with current in-memory facts.
         odbc_query(opac, 'DELETE FROM loans'),
         odbc_query(opac, 'DELETE FROM books'),
         odbc_query(opac, 'DELETE FROM borrowers'),
@@ -149,6 +153,7 @@ save_data :-
     )).
 
 to_number(Value, Number) :-
+    % Normalizes ODBC return values (atom/string/number) to a Prolog number.
     ( number(Value) ->
         Number = Value
     ; atom(Value) ->
@@ -160,6 +165,7 @@ to_number(Value, Number) :-
     ).
 
 to_integer_value(Value, Integer) :-
+    % Accepts numeric input that may arrive as float and rounds if needed.
     to_number(Value, Number),
     ( integer(Number) ->
         Integer = Number
@@ -168,6 +174,7 @@ to_integer_value(Value, Integer) :-
     ).
 
 to_flag_value(Value, Flag) :-
+    % Maps SQL/null-ish values to strict 0/1 flag used by loan/7.
     ( sql_null_value(Value) ->
         Flag = 0
     ; to_integer_value(Value, Raw),
@@ -183,6 +190,7 @@ sql_null_value(Value) :-
     member(Lower, ["null", "none", "", "0000-00-00", "0000-00-00 00:00:00"]).
 
 to_iso_date(Value, ISO) :-
+    % Converts supported SQL/Prolog date representations to YYYY-MM-DD atom.
     ( string(Value) ->
         normalize_space(string(T), Value),
         atom_string(ISO, T)
