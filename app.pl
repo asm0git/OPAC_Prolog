@@ -378,7 +378,7 @@ draw_header(Title) :-
     write('==============================================='), nl.
 
 draw_main_header :-
-    draw_header('OPAC - MAIN MENU'),
+    draw_header('The AngeLib - OPAC - MAIN MENU'),
     % Lightweight runtime stats shown on every main-menu render.
     runtime_stats(Books, ActiveLoans, Mode),
     format('Books: ~w | Active Loans: ~w | Mode: ~w~n', [Books, ActiveLoans, Mode]),
@@ -387,7 +387,7 @@ draw_main_header :-
 draw_user_menu_header :-
     nl,
     write('==============================================='), nl,
-    write('USER MENU'), nl,
+    write('The AngeLib - USER MENU'), nl,
     ( current_login_name(Name) ->
         format('Student Name: ~w~n', [Name])
     ;

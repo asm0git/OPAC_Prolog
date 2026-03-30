@@ -1,4 +1,4 @@
-# OPAC Prolog Setup Manual (Windows)
+# The AngeLib - OPAC Prolog Setup Manual (Windows)
 
 ## Quick Steps (XAMPP/MariaDB ODBC Setup)
 
@@ -44,7 +44,7 @@ If you follow this in order, the project should run without setup errors.
 
 ## 1. What This Project Uses
 
-This application is a Prolog OPAC (library) system that:
+**The AngeLib** is a Prolog-based OPAC (Online Public Access Catalog) system that:
 - Runs from `app.pl`
 - Loads and saves data via ODBC in `storage.pl`
 - Expects an ODBC Data Source Name (DSN) called `opac_db`
