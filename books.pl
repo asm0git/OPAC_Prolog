@@ -2,10 +2,12 @@
 % BOOK STATUS
 % -------------------------------------------------
 
-%% book_status(+BookID, -Status)
-book_status(BookID, 'Borrowed') :-
+%% book_status(+BookID, +Copies, -Status)
+book_status(_, Copies, 'Unavailable') :-
+    Copies =:= 0, !.
+book_status(BookID, _, 'Borrowed') :-
     loan(_, BookID, _, _, _, _, 0), !.
-book_status(_, 'Available').
+book_status(_, _, 'Available').
 
 % -------------------------------------------------
 % NEXT BOOK ID (AUTO-INCREMENT)
@@ -521,7 +523,7 @@ book_header :-
 %% print_book_row(+ID, +Title, +Author, +Year, +Copies, +Dewey)
 print_book_row(ID, Title, Author, Year, Copies, Dewey) :-
     dewey_category(Dewey, Category),
-    book_status(ID, Status),
+    book_status(ID, Copies, Status),
     format('~w~t~8| ~w~t~46| ~w~t~68| ~w~t~74| ~w~t~82| ~w~t~90| ~w~t~110| ~w~n',
            [ID, Title, Author, Year, Copies, Dewey, Category, Status]).
 

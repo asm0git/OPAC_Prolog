@@ -156,7 +156,7 @@ librarian_menu :-
     write('3. Delete Book'), nl,
     write('4. List All Books'), nl,
     write('5. Search Books'), nl,
-    write('6. Borrow/Return Book'), nl,
+    write('6. View All Loans'), nl,
     write('7. Logout'), nl,
     read_menu_choice(1, 7, Choice),
     handle_librarian_choice(Choice, Action),
@@ -167,7 +167,7 @@ handle_librarian_choice(2, continue) :- edit_book, pause.
 handle_librarian_choice(3, continue) :- delete_book, pause.
 handle_librarian_choice(4, continue) :- list_books, pause.
 handle_librarian_choice(5, continue) :- search_menu.
-handle_librarian_choice(6, continue) :- loans_menu.
+handle_librarian_choice(6, continue) :- list_all_loans_librarian, pause.
 handle_librarian_choice(7, back) :- info('Logged out from librarian account.').
 
 search_menu :-
@@ -296,6 +296,18 @@ capitalize_word(Word, Capitalized) :-
         string_concat(UpperFirst, Rest, Capitalized)
     ).
 
+read_middle_initial(Prompt, MiddleInitial) :-
+    repeat,
+    read_text(Prompt, Raw),
+    string_length(Raw, Len),
+    ( Len =:= 1 ->
+        string_upper(Raw, MiddleInitial),
+        !
+    ;
+        info('Middle initial must be exactly one character.'),
+        fail
+    ).
+
 read_student_number(Prompt, StudentNo) :-
     repeat,
     read_integer(Prompt, Candidate),
@@ -324,6 +336,9 @@ ask_yes_no(Prompt, Answer) :-
         info('Please answer y or n.'),
         fail
     ).
+
+borrower_full_name(Surname, FirstName, MiddleInitial, FullName) :-
+    format(atom(FullName), '~w, ~w ~w.', [Surname, FirstName, MiddleInitial]).
 
 as_string(Value, Text) :-
     ( string(Value) ->
@@ -369,8 +384,6 @@ set_current_student_number(StudentNo) :-
 clear_current_student_number :-
     retractall(current_student_number(_)).
 
-borrower_full_name(Surname, FirstName, MiddleInitial, FullName) :-
-    format(string(FullName), '~w, ~w ~w.', [Surname, FirstName, MiddleInitial]).
 
 runtime_stats(Books, ActiveLoans, parallel) :-
     supports_parallel,

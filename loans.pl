@@ -557,3 +557,36 @@ list_loans :-
           fail ; true )
     ),
     write('================================================================================'), nl.
+
+% =============================================================
+% LIST ALL LOANS (LIBRARIAN VIEW) - All unreturned loans
+% =============================================================
+
+list_all_loans_librarian :-
+    nl,
+    write('================================================================================'), nl,
+    format('~w~t~8| ~w~t~35| ~w~t~42| ~w~t~68| ~w~t~92| ~w~n',
+           ['LoanID', 'Borrower Name', 'BookID', 'Title', 'Author', 'Borrowed']),
+    write('================================================================================'), nl,
+    catch(
+        (   connect_db,
+            SQL = 'SELECT l.loan_id, b.surname, b.first_name, l.book_id, bk.title, bk.author, DATE_FORMAT(l.date_borrowed, "%Y-%m-%d") FROM loans l JOIN borrowers b ON l.student_number = b.student_number JOIN books bk ON l.book_id = bk.book_id WHERE l.is_returned = 0 ORDER BY l.loan_id',
+            (   odbc_query(opac, SQL, Row),
+                format_loan_row_librarian(Row),
+                fail
+            ;   true
+            )
+        ),
+        Error,
+        format('[DB ERROR] ~w~n', [Error])
+    ),
+    catch(disconnect_db, _, true),
+    write('================================================================================'), nl.
+
+%% format_loan_row_librarian(+Row)
+%  Formats and prints a single loan row for librarian view
+format_loan_row_librarian(row(LoanID, Surname, FirstName, BookID, Title, Author, DateBorrowed)) :-
+    format_date_for_display(DateBorrowed, FormattedBorrowed),
+    format(atom(BorrowerName), '~w, ~w', [Surname, FirstName]),
+    format('~w~t~8| ~w~t~35| ~w~t~42| ~w~t~68| ~w~t~92| ~w~n',
+           [LoanID, BorrowerName, BookID, Title, Author, FormattedBorrowed]).
