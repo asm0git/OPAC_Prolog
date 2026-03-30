@@ -1,6 +1,6 @@
 # OPAC Prolog Setup Manual (Windows)
 
-## Instructor Quick Steps (XAMPP/MariaDB ODBC Setup)
+## Quick Steps (XAMPP/MariaDB ODBC Setup)
 
 Good day, ma'am! For this OPAC project, the Prolog app connects through ODBC and requires a System DSN named opac_db. The following are the steps to ensure that it runs effectively on your end:
 
