@@ -4,8 +4,65 @@
 
 %% book_status(+BookID, -Status)
 book_status(BookID, 'Borrowed') :-
-    loan(_, BookID, _, _, _, none), !.
+    loan(_, BookID, _, _, _, _, 0), !.
 book_status(_, 'Available').
+
+% -------------------------------------------------
+% NEXT BOOK ID (AUTO-INCREMENT)
+% -------------------------------------------------
+
+%% next_book_id(-ID)
+next_book_id(ID) :-
+    findall(N, book(N, _, _, _, _, _), IDs),
+    ( IDs = [] -> ID = 1 ; max_list(IDs, Max), ID is Max + 1 ).
+
+% -------------------------------------------------
+% BOOK INPUT VALIDATION
+% -------------------------------------------------
+
+%% read_valid_author(+Prompt, -Author)
+read_valid_author(Prompt, Author) :-
+    repeat,
+    read_text(Prompt, Raw),
+    ( Raw = '' ->
+        write('[ERROR] Author cannot be blank.'), nl,
+        fail
+    ;
+        Author = Raw, !
+    ).
+
+%% read_valid_year(+Prompt, -Year)
+read_valid_year(Prompt, Year) :-
+    repeat,
+    read_integer(Prompt, Candidate),
+    ( Candidate < 1450 ; Candidate > 2100 ->
+        write('[ERROR] Year must be between 1450 and 2100.'), nl,
+        fail
+    ;
+        Year = Candidate, !
+    ).
+
+%% read_valid_copies(+Prompt, -Copies)
+read_valid_copies(Prompt, Copies) :-
+    repeat,
+    read_integer(Prompt, Candidate),
+    ( Candidate < 1 ->
+        write('[ERROR] Copies must be at least 1.'), nl,
+        fail
+    ;
+        Copies = Candidate, !
+    ).
+
+%% read_valid_dewey(+Prompt, -Dewey)
+read_valid_dewey(Prompt, Dewey) :-
+    repeat,
+    read_number(Prompt, Candidate),
+    ( Candidate < 0 ; Candidate > 999.99 ->
+        write('[ERROR] Dewey Decimal must be between 0.00 and 999.99.'), nl,
+        fail
+    ;
+        Dewey = Candidate, !
+    ).
 
 % -------------------------------------------------
 % ADD BOOK
@@ -13,24 +70,20 @@ book_status(_, 'Available').
 
 add_book :-
     nl, write('--- Add New Book ---'), nl,
-    read_integer('Book ID      : ', ID),
-    ( book(ID, _, _, _, _, _) ->
-        format('[ERROR] Book ID ~w already exists.~n', [ID])
+    read_text('Title        : ', Title),
+    ( Title = '' ->
+        write('[ERROR] Title cannot be blank.'), nl
     ;
-        read_text('Title        : ', Title),
-        ( Title = '' ->
-            write('[ERROR] Title cannot be blank.'), nl
+        read_valid_author('Author       : ', Author),
+        read_valid_year('Year         : ', Year),
+        read_valid_copies('Copies       : ', Copies),
+        read_valid_dewey('Dewey Number : ', Dewey),
+        next_book_id(ID),
+        ( sql_insert_book(ID, Title, Author, Year, Copies, Dewey) ->
+            assertz(book(ID, Title, Author, Year, Copies, Dewey)),
+            format('[INFO] Book added successfully. Book ID: ~w~n', [ID])
         ;
-            read_text('Author       : ', Author),
-            read_integer('Year         : ', Year),
-            read_integer('Copies       : ', Copies),
-            read_number('Dewey Number : ', Dewey),
-            ( sql_insert_book(ID, Title, Author, Year, Copies, Dewey) ->
-                assertz(book(ID, Title, Author, Year, Copies, Dewey)),
-                write('[INFO] Book added successfully.'), nl
-            ;
-                write('[ERROR] Failed to save book to database.'), nl
-            )
+            write('[ERROR] Failed to save book to database.'), nl
         )
     ).
 
@@ -38,7 +91,6 @@ sql_insert_book(ID, Title, Author, Year, Copies, Dewey) :-
     catch((
         connect_db,
         format(atom(SQL), 'INSERT INTO books (book_id, title, author, year_published, copies, dewey_decimal) VALUES (~w, \'~w\', \'~w\', ~w, ~w, ~w)', [ID, Title, Author, Year, Copies, Dewey]),
-        format('SQL: ~w~n', [SQL]),
         odbc_query(opac, SQL),
         disconnect_db
     ), Error, (
@@ -103,7 +155,7 @@ delete_book :-
     read_integer('Enter Book ID: ', ID),
     ( \+ book(ID, _, _, _, _, _) ->
         format('[ERROR] Book ID ~w not found.~n', [ID])
-    ; loan(_, ID, _, _, _, none) ->
+    ; loan(_, ID, _, _, _, _, 0) ->
         write('[ERROR] Cannot delete: this book has an active loan.'), nl
     ;
         book(ID, Title, _, _, _, _),

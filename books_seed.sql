@@ -1,67 +1,5 @@
--- -------------------------------------------------
--- OPAC SYSTEM - DATABASE SCHEMA (Relational Mapping)
--- Mapped from data.pl & storage.pl to comply with IMAN Requirements
--- -------------------------------------------------
+USE opac_db;
 
--- 1. DATABASE INITIALIZATION (storage.pl: load_data)
--- Prolog: retractall(book/6), retractall(loan/6), etc.
-DROP TABLE IF EXISTS loans;
-DROP TABLE IF EXISTS books;
-DROP TABLE IF EXISTS borrowers;
-DROP TABLE IF EXISTS librarians;
-
--- 2. SCHEMA DEFINITION (data.pl Structure)
-
--- Format: librarian(StaffNumber, Surname, FirstName, MiddleInitial, Position, Password)
-CREATE TABLE librarians (
-    staff_number VARCHAR(50) PRIMARY KEY,
-    surname VARCHAR(100) NOT NULL,
-    first_name VARCHAR(100) NOT NULL,
-    middle_initial CHAR(1),
-    position VARCHAR(50),
-    password VARCHAR(100) NOT NULL
-);
-
--- Format: book(ID, Title, Author, Year, Copies, Dewey)
-CREATE TABLE books (
-    book_id INT PRIMARY KEY,
-    title VARCHAR(255) NOT NULL,
-    author VARCHAR(100),
-    year_published INT,
-    copies INT DEFAULT 1,
-    dewey_decimal DECIMAL(10,2) -- M1 Requirement
-);
-
--- Format: borrower(StudentNumber, Surname, FirstName, MiddleInitial, Department, Password)
-CREATE TABLE borrowers (
-    student_number INT PRIMARY KEY,
-    surname VARCHAR(100) NOT NULL,
-    first_name VARCHAR(100) NOT NULL,
-    middle_initial CHAR(1),
-    department VARCHAR(50),
-    password VARCHAR(100) NOT NULL
-);
-
--- Format: loan(ID, BookID, BorrowerID, DateBorrowed, DueDate, DateReturned, IsReturned)
-CREATE TABLE loans (
-    loan_id INT PRIMARY KEY,
-    book_id INT,
-    student_number INT,
-    date_borrowed DATE,
-    due_date DATE,
-    date_returned DATE NULL,
-    is_returned BOOLEAN NOT NULL DEFAULT 0,
-    FOREIGN KEY (book_id) REFERENCES books(book_id),
-    FOREIGN KEY (student_number) REFERENCES borrowers(student_number)
-);
-
--- 3. DATA PERSISTENCE (storage.pl: save_data / data.pl Facts)
-
--- Librarian Records
-INSERT INTO librarians VALUES ('LIB001', 'Reyes', 'Maria', 'S', 'Head Librarian', 'SecurePass1');
-INSERT INTO librarians VALUES ('LIB002', 'Cruz', 'Juan', 'P', 'Assistant Librarian', 'SecurePass2');
-
--- Book Records (M1 Sync)
 INSERT INTO books VALUES (1, 'Foundations of Computing', 'R. Halvorsen', 2016, 4, 5.00);
 INSERT INTO books VALUES (2, 'Programming Logic Essentials', 'D. Pineda', 2019, 3, 5.10);
 INSERT INTO books VALUES (3, 'Algorithms in Practice', 'M. Ortega', 2020, 5, 5.20);
@@ -121,12 +59,3 @@ INSERT INTO books VALUES (47, 'Philippine History', 'A. Mendoza', 2018, 3, 959.9
 INSERT INTO books VALUES (48, 'History of Civilizations', 'P. Nolan', 2017, 2, 930.00);
 INSERT INTO books VALUES (49, 'Asian History Survey', 'D. Park', 2021, 3, 950.00);
 INSERT INTO books VALUES (50, 'Historical Methods', 'R. Cheng', 2014, 2, 907.20);
-
--- Borrower Records
--- No pre-seeded borrowers.
-
--- Loan Records (M2 Sync - Handling 'none' as NULL)
--- No pre-seeded loans.
-
--- 4. ATOMIC SAVE / COMMIT (storage.pl: save_data)
-COMMIT;

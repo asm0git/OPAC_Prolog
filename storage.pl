@@ -29,7 +29,7 @@ load_data :-
         % 1. Clear current Prolog memory
         retractall(book(_, _, _, _, _, _)),
         retractall(borrower(_, _, _, _, _, _)),
-        retractall(loan(_, _, _, _, _, _)),
+        retractall(loan(_, _, _, _, _, _, _)),
         retractall(librarian(_, _, _)),
 
         % 2. Load Books
@@ -38,9 +38,9 @@ load_data :-
                 'SELECT book_id, title, author, year_published, copies, dewey_decimal FROM books', 
                 row(RawID, T, A, RawY, RawC, RawD)),
             (
-                to_number(RawID, ID),
-                to_number(RawY, Y),
-                to_number(RawC, C),
+                to_integer_value(RawID, ID),
+                to_integer_value(RawY, Y),
+                to_integer_value(RawC, C),
                 to_number(RawD, D),
                 assertz(book(ID, T, A, Y, C, D))
             )
@@ -50,27 +50,36 @@ load_data :-
         forall(
             odbc_query(opac, 'SELECT student_number, surname, first_name, middle_initial, department, password FROM borrowers', row(RawStudentNo, Surname, FirstName, MiddleInitial, Dept, P)),
             (
-                to_number(RawStudentNo, StudentNo),
+                to_integer_value(RawStudentNo, StudentNo),
                 assertz(borrower(StudentNo, Surname, FirstName, MiddleInitial, Dept, P))
             )
         ),
 
-        % 4. Load Loans (Handles SQL NULL mapping to Prolog 'none')
+        % 4. Load Loans (uses explicit is_returned boolean)
         forall(
             odbc_query(opac, 
-                                'SELECT loan_id, book_id, student_number, date_borrowed, due_date, date_returned FROM loans', 
-                                row(RawLID, RawBID, RawStudentNo, DB, DD, DR)),
-            ( (DR == @(null) -> Ret = none ; Ret = DR),
-              to_number(RawLID, LID),
-              to_number(RawBID, BID),
-              to_number(RawStudentNo, StudentNo),
-              assertz(loan(LID, BID, StudentNo, DB, DD, Ret)) )
+                                'SELECT loan_id, book_id, student_number, date_borrowed, due_date, date_returned, is_returned FROM loans', 
+                                row(RawLID, RawBID, RawStudentNo, DB, DD, DR, RawReturnedFlag)),
+                        ( to_iso_date(DB, BorrowedISO),
+                            to_iso_date(DD, DueISO),
+                            ( sql_null_value(DR) ->
+                                        Ret = none
+                                ; to_iso_date(DR, Ret)
+                            ),
+                            to_flag_value(RawReturnedFlag, ReturnedFlag),
+                            to_integer_value(RawLID, LID),
+                            to_integer_value(RawBID, BID),
+                            to_integer_value(RawStudentNo, StudentNo),
+                            assertz(loan(LID, BID, StudentNo, BorrowedISO, DueISO, Ret, ReturnedFlag)) )
         ),
 
         % 5. Load Librarians
         forall(
-            odbc_query(opac, 'SELECT librarian_id, name, position FROM librarians', row(ID, N, P)),
-            assertz(librarian(ID, N, P))
+            odbc_query(opac, 'SELECT staff_number, surname, first_name, middle_initial, position, password FROM librarians', row(RawSN, Sur, FN, MI, Pos, Pwd)),
+            (
+                ( atom(RawSN) -> SN = RawSN ; atom_string(SN, RawSN) ),
+                assertz(librarian(SN, Sur, FN, MI, Pos, Pwd))
+            )
         ),
 
         disconnect_db,
@@ -109,18 +118,23 @@ save_data :-
              ( format(atom(SQL), 'INSERT INTO borrowers (student_number, surname, first_name, middle_initial, department, password) VALUES (~w, \'~w\', \'~w\', \'~w\', \'~w\', \'~w\')', [StudentNo, Surname, FirstName, MiddleInitial, Dept, P]),
                  odbc_query(opac, SQL) )),
 
-        % 4. Sync Loans (Map 'none' back to SQL NULL)
-        forall(loan(LID, BID, BrID, DB, DD, Ret),
-               ( Ret == none ->
-                   format(atom(SQL), 'INSERT INTO loans VALUES (~w, ~w, ~w, \'~w\', \'~w\', NULL)', [LID, BID, BrID, DB, DD]),
-                   odbc_query(opac, SQL)
-                 ; format(atom(SQL), 'INSERT INTO loans VALUES (~w, ~w, ~w, \'~w\', \'~w\', \'~w\')', [LID, BID, BrID, DB, DD, Ret]),
-                   odbc_query(opac, SQL)
+        % 4. Sync Loans (persist explicit is_returned boolean)
+        forall(loan(LID, BID, BrID, DB, DD, Ret, ReturnedFlag),
+               ( to_iso_date(DB, BorrowedISO),
+                 to_iso_date(DD, DueISO),
+                 ( Ret == none ->
+                     format(atom(SQL), 'INSERT INTO loans (loan_id, book_id, student_number, date_borrowed, due_date, date_returned, is_returned) VALUES (~w, ~w, ~w, \'~a\', \'~a\', NULL, ~w)', [LID, BID, BrID, BorrowedISO, DueISO, ReturnedFlag]),
+                     odbc_query(opac, SQL)
+                 ;
+                     to_iso_date(Ret, ReturnISO),
+                     format(atom(SQL), 'INSERT INTO loans (loan_id, book_id, student_number, date_borrowed, due_date, date_returned, is_returned) VALUES (~w, ~w, ~w, \'~a\', \'~a\', \'~a\', ~w)', [LID, BID, BrID, BorrowedISO, DueISO, ReturnISO, ReturnedFlag]),
+                     odbc_query(opac, SQL)
+                 )
                )),
 
         % 5. Sync Librarians
-        forall(librarian(ID, N, P),
-               ( format(atom(SQL), 'INSERT INTO librarians VALUES (~w, \'~w\', \'~w\')', [ID, N, P]),
+        forall(librarian(SN, Sur, FN, MI, Pos, Pwd),
+               ( format(atom(SQL), 'INSERT INTO librarians (staff_number, surname, first_name, middle_initial, position, password) VALUES (\'~w\', \'~w\', \'~w\', \'~w\', \'~w\', \'~w\')', [SN, Sur, FN, MI, Pos, Pwd]),
                  odbc_query(opac, SQL) )),
 
         % 6. If all successful
@@ -143,4 +157,46 @@ to_number(Value, Number) :-
         number_string(Number, Value)
     ; format(string(Text), '~w', [Value]),
       number_string(Number, Text)
+    ).
+
+to_integer_value(Value, Integer) :-
+    to_number(Value, Number),
+    ( integer(Number) ->
+        Integer = Number
+    ;
+        Integer is round(Number)
+    ).
+
+to_flag_value(Value, Flag) :-
+    ( sql_null_value(Value) ->
+        Flag = 0
+    ; to_integer_value(Value, Raw),
+      ( Raw =:= 0 -> Flag = 0 ; Flag = 1 )
+    ).
+
+sql_null_value(Value) :-
+    Value == @(null), !.
+sql_null_value(Value) :-
+    format(string(Text), '~w', [Value]),
+    normalize_space(string(Clean), Text),
+    string_lower(Clean, Lower),
+    member(Lower, ["null", "none", "", "0000-00-00", "0000-00-00 00:00:00"]).
+
+to_iso_date(Value, ISO) :-
+    ( string(Value) ->
+        normalize_space(string(T), Value),
+        atom_string(ISO, T)
+    ; atom(Value) ->
+        atom_string(Value, S),
+        normalize_space(string(T), S),
+        atom_string(ISO, T)
+    ; number(Value) ->
+        number_string(Value, NText),
+        atom_string(ISO, NText)
+    ; compound(Value), Value =.. [date, Y, M, D] ->
+        format(atom(ISO), '~|~`0t~d~4+-~|~`0t~d~2+-~|~`0t~d~2+', [Y, M, D])
+    ; compound(Value), Value =.. [timestamp, Y, M, D|_] ->
+        format(atom(ISO), '~|~`0t~d~4+-~|~`0t~d~2+-~|~`0t~d~2+', [Y, M, D])
+    ;
+        format(atom(ISO), '~w', [Value])
     ).

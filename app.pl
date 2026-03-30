@@ -3,9 +3,10 @@
 % MASTER SCHEMA (Required for SQL integration)
 :- dynamic book/6.
 :- dynamic borrower/6.
-:- dynamic loan/6.
-:- dynamic librarian/3.
+:- dynamic loan/7.
+:- dynamic librarian/6.
 :- dynamic current_login_name/1.
+:- dynamic current_student_number/1.
 
 :- ensure_loaded(storage).
 :- ensure_loaded(books).
@@ -46,6 +47,7 @@ login('USER') :-
         ( Password == StoredPasswordText ->
             borrower_full_name(Surname, FirstName, MiddleInitial, FullName),
             set_current_login_name(FullName),
+            set_current_student_number(StudentNo),
             info('Login successful.')
         ;
             info('Incorrect password. Login failed.'),
@@ -64,11 +66,32 @@ login('USER') :-
 
 login('LIBRARIAN') :-
     draw_header('LIBRARIAN'),
-    read_text('ID Number: ', LibrarianID),
-    read_text('Password : ', _),
-    format(string(DisplayName), 'Librarian ~w', [LibrarianID]),
-    set_current_login_name(DisplayName),
-    info('Login successful.').
+    read_text('Staff Number: ', RawStaffNumber),
+    ( atom(RawStaffNumber) -> StaffNumber = RawStaffNumber ; atom_string(StaffNumber, RawStaffNumber) ),
+    ( librarian(StaffNumber, Surname, FirstName, MiddleInitial, _, StoredPassword) ->
+        read_text('Password : ', RawPassword),
+        as_string(RawPassword, Password),
+        as_string(StoredPassword, StoredPasswordText),
+        ( Password == StoredPasswordText ->
+            borrower_full_name(Surname, FirstName, MiddleInitial, FullName),
+            format(string(DisplayName), 'Librarian ~w (~w)', [FullName, StaffNumber]),
+            set_current_login_name(DisplayName),
+            clear_current_student_number,
+            info('Login successful.')
+        ;
+            info('Incorrect password. Login failed.'),
+            fail
+        )
+    ;
+        info('This staff number is not registered.'),
+        ask_yes_no('Do you wish to register as a new librarian? (y/n): ', Answer),
+        ( Answer = yes ->
+            register_new_librarian(StaffNumber)
+        ;
+            info('Registration cancelled.'),
+            fail
+        )
+    ).
 
 register_new_user(StudentNo) :-
     read_capitalized_name('Surname       : ', Surname),
@@ -80,6 +103,26 @@ register_new_user(StudentNo) :-
         assertz(borrower(StudentNo, Surname, FirstName, MiddleInitial, Department, Password)),
         borrower_full_name(Surname, FirstName, MiddleInitial, FullName),
         set_current_login_name(FullName),
+        set_current_student_number(StudentNo),
+        info('Registration successful. Login successful.')
+    ;
+        info('Failed to register account.'),
+        fail
+    ).
+
+register_new_librarian(StaffNumber) :-
+    nl, write('--- Librarian Registration ---'), nl,
+    read_capitalized_name('Surname       : ', Surname),
+    read_capitalized_name('First Name    : ', FirstName),
+    read_middle_initial('Middle Initial: ', MiddleInitial),
+    read_text('Position      : ', Position),
+    read_password_min8('Password      : ', Password),
+    ( sql_insert_librarian(StaffNumber, Surname, FirstName, MiddleInitial, Position, Password) ->
+        assertz(librarian(StaffNumber, Surname, FirstName, MiddleInitial, Position, Password)),
+        borrower_full_name(Surname, FirstName, MiddleInitial, FullName),
+        format(string(DisplayName), 'Librarian ~w (~w)', [FullName, StaffNumber]),
+        set_current_login_name(DisplayName),
+        clear_current_student_number,
         info('Registration successful. Login successful.')
     ;
         info('Failed to register account.'),
@@ -91,7 +134,7 @@ user_menu :-
     draw_user_menu_header,
     write('1. Search Books'), nl,
     write('2. List All Books'), nl,
-    write('3. Loans'), nl,
+    write('3. Borrow/Return Book'), nl,
     write('4. Logout'), nl,
     read_menu_choice(1, 4, Choice),
     handle_user_choice(Choice, Action),
@@ -102,6 +145,7 @@ handle_user_choice(2, continue) :- list_books, pause.
 handle_user_choice(3, continue) :- loans_menu.
 handle_user_choice(4, back) :-
     retractall(current_login_name(_)),
+    clear_current_student_number,
     info('Logged out from user account.').
 
 librarian_menu :-
@@ -112,7 +156,7 @@ librarian_menu :-
     write('3. Delete Book'), nl,
     write('4. List All Books'), nl,
     write('5. Search Books'), nl,
-    write('6. Loans'), nl,
+    write('6. Borrow/Return Book'), nl,
     write('7. Logout'), nl,
     read_menu_choice(1, 7, Choice),
     handle_librarian_choice(Choice, Action),
@@ -148,26 +192,28 @@ loans_menu :-
     write('1. Borrow Book'), nl,
     write('2. Return Book'), nl,
     write('3. List All Loans'), nl,
-    write('4. Compute Overdue Fee'), nl,
-    write('5. Back'), nl,
-    read_menu_choice(1, 5, Choice),
+    write('4. Back'), nl,
+    read_menu_choice(1, 4, Choice),
     handle_loans_choice(Choice, Action),
     ( Action = back -> ! ; fail ).
 
 handle_loans_choice(1, continue) :- borrow_book, pause.
 handle_loans_choice(2, continue) :- return_book, pause.
 handle_loans_choice(3, continue) :- list_loans, pause.
-handle_loans_choice(4, continue) :- compute_overdue_fee, pause.
-handle_loans_choice(5, back).
+handle_loans_choice(4, back).
 
 read_menu_choice(Min, Max, Choice) :-
     repeat,
     format('Choose [~w-~w]: ', [Min, Max]),
     read_line_to_string(user_input, Input),
     normalize_space(string(Clean), Input),
+        string_lower(Clean, Lower),
     ( Clean = "" ->
         info('Please enter a number.'),
         fail
+        ; Lower = "exit" ->
+            Choice = Max,
+            !
     ; catch(number_string(N, Clean), _, fail),
       integer(N),
       N >= Min,
@@ -316,6 +362,13 @@ set_current_login_name(Name) :-
     retractall(current_login_name(_)),
     assertz(current_login_name(Name)).
 
+set_current_student_number(StudentNo) :-
+    retractall(current_student_number(_)),
+    assertz(current_student_number(StudentNo)).
+
+clear_current_student_number :-
+    retractall(current_student_number(_)).
+
 borrower_full_name(Surname, FirstName, MiddleInitial, FullName) :-
     format(string(FullName), '~w, ~w ~w.', [Surname, FirstName, MiddleInitial]).
 
@@ -362,12 +415,12 @@ send_book_count(Q) :-
     thread_send_message(Q, metric(books, Count)).
 
 send_active_loan_count(Q) :-
-    aggregate_all(count, loan(_, _, _, _, _, none), Count),
+    aggregate_all(count, loan(_, _, _, _, _, _, 0), Count),
     thread_send_message(Q, metric(active_loans, Count)).
 
 sequential_runtime_stats(Books, ActiveLoans) :-
     aggregate_all(count, book(_, _, _, _, _, _), Books),
-    aggregate_all(count, loan(_, _, _, _, _, none), ActiveLoans).
+    aggregate_all(count, loan(_, _, _, _, _, _, 0), ActiveLoans).
 
 info(Message) :-
     format('~n[INFO] ~w~n', [Message]).

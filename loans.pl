@@ -1,5 +1,5 @@
-:- dynamic loan/6.
-% loan(LoanID, BookID, StudentNumber, DateBorrowed, DueDate, DateReturned).
+:- dynamic loan/7.
+% loan(LoanID, BookID, StudentNumber, DateBorrowed, DueDate, DateReturned, IsReturned).
 
 :- dynamic borrower/6.
 % borrower(StudentNumber, Surname, FirstName, MiddleInitial, Department, Password).
@@ -16,6 +16,27 @@ parse_date(DateStr, Y, M, D) :-
 %% make_date(+Y, +M, +D, -'YYYY-MM-DD')
 make_date(Y, M, D, DateStr) :-
     format(atom(DateStr), '~`0t~w~4|-~`0t~w~2|-~`0t~w~2|', [Y, M, D]).
+
+%% format_date_for_display(+'YYYY-MM-DD', -'dd MMM yyyy')
+%  Converts YYYY-MM-DD to pretty display format (e.g., '19 Mar 2026')
+format_date_for_display(DateStr, FormattedDisplay) :-
+    parse_date(DateStr, Y, M, D),
+    month_abbrev(M, MonthAbbrev),
+    format(atom(FormattedDisplay), '~w ~w ~w', [D, MonthAbbrev, Y]).
+
+%% month_abbrev(+Month, -Abbreviation)
+month_abbrev(1,  'Jan').
+month_abbrev(2,  'Feb').
+month_abbrev(3,  'Mar').
+month_abbrev(4,  'Apr').
+month_abbrev(5,  'May').
+month_abbrev(6,  'Jun').
+month_abbrev(7,  'Jul').
+month_abbrev(8,  'Aug').
+month_abbrev(9,  'Sep').
+month_abbrev(10, 'Oct').
+month_abbrev(11, 'Nov').
+month_abbrev(12, 'Dec').
 
 %% days_in_month(+Year, +Month, -Days)
 days_in_month(_, 1,  31).
@@ -134,8 +155,14 @@ valid_date_format(A) :-
 
 %% next_loan_id(-ID)
 next_loan_id(ID) :-
-    findall(N, loan(N, _, _, _, _, _), IDs),
+    findall(N, loan(N, _, _, _, _, _, _), IDs),
     ( IDs = [] -> ID = 1 ; max_list(IDs, Max), ID is Max + 1 ).
+
+%% count_borrowed_copies(+BookID, -Count)
+%  Count how many copies of a book are currently borrowed (unreturned loans)
+count_borrowed_copies(BookID, Count) :-
+    findall(1, loan(_, BookID, _, _, _, _, 0), Loans),
+    length(Loans, Count).
 
 % =============================================================
 % SQL HELPERS
@@ -144,7 +171,7 @@ next_loan_id(ID) :-
 sql_insert_loan(LID, BkID, StudentNo, Borrowed, Due) :-
     catch((
         connect_db,
-        format(atom(SQL), 'INSERT INTO loans (loan_id, book_id, student_number, date_borrowed, due_date, date_returned) VALUES (~w, ~w, ~w, \'~w\', \'~w\', NULL)', [LID, BkID, StudentNo, Borrowed, Due]),
+        format(atom(SQL), 'INSERT INTO loans (loan_id, book_id, student_number, date_borrowed, due_date, date_returned, is_returned) VALUES (~w, ~w, ~w, \'~w\', \'~w\', NULL, 0)', [LID, BkID, StudentNo, Borrowed, Due]),
         odbc_query(opac, SQL),
         disconnect_db
     ), Error, (
@@ -155,7 +182,7 @@ sql_insert_loan(LID, BkID, StudentNo, Borrowed, Due) :-
 sql_return_loan(LoanID, ReturnDate) :-
     catch((
         connect_db,
-        format(atom(SQL), 'UPDATE loans SET date_returned=\'~w\' WHERE loan_id=~w', [ReturnDate, LoanID]),
+        format(atom(SQL), 'UPDATE loans SET date_returned=\'~w\', is_returned=1 WHERE loan_id=~w', [ReturnDate, LoanID]),
         odbc_query(opac, SQL),
         disconnect_db
     ), Error, (
@@ -182,6 +209,17 @@ sql_insert_borrower(StudentNo, Surname, FirstName, MiddleInitial, Department, Pa
         disconnect_db
     ), Error, (
         format('[DB ERROR] insert borrower: ~w~n', [Error]),
+        disconnect_db, fail
+    )).
+
+sql_insert_librarian(StaffNumber, Surname, FirstName, MiddleInitial, Position, Password) :-
+    catch((
+        connect_db,
+        format(atom(SQL), 'INSERT INTO librarians (staff_number, surname, first_name, middle_initial, position, password) VALUES (\'~w\', \'~w\', \'~w\', \'~w\', \'~w\', \'~w\')', [StaffNumber, Surname, FirstName, MiddleInitial, Position, Password]),
+        odbc_query(opac, SQL),
+        disconnect_db
+    ), Error, (
+        format('[DB ERROR] insert librarian: ~w~n', [Error]),
         disconnect_db, fail
     )).
 
@@ -229,36 +267,43 @@ list_borrowers :-
 
 borrow_book :-
     nl, write('--- Borrow Book ---'), nl,
-    read_integer('Enter Book ID    : ', BookID),
-
-    ( \+ book(BookID, _, _, _, _, _) ->
-        format('[ERROR] Book ID ~w not found.~n', [BookID])
+    ( current_student_number(_) ->
+        borrow_book_loop
     ;
-        ( loan(_, BookID, _, _, _, none) ->
-            write('[ERROR] This book already has an active loan.'), nl
+        write('[ERROR] No logged-in student session found.'), nl,
+        write('[INFO] Please login as a user first.'), nl
+    ).
+
+borrow_book_loop :-
+    read_integer('Enter Book ID    : ', BookID),
+    ( BookID =:= -1 ->
+        true
+    ; \+ book(BookID, _, _, _, _, _) ->
+        format('[ERROR] Book ID ~w not found. Try again.~n', [BookID]),
+        borrow_book_loop
+    ;
+        book(BookID, Title, Author, Year, Copies, Dewey),
+        count_borrowed_copies(BookID, BorrowedCount),
+        AvailableCopies is Copies - BorrowedCount,
+        ( AvailableCopies =< 0 ->
+            write('[ERROR] No available copies for this book.'), nl,
+            borrow_book_loop
         ;
-            book(BookID, Title, Author, Year, Copies, Dewey),
-            ( Copies =< 0 ->
-                write('[ERROR] No available copies.'), nl
+            current_student_number(StudentNo),
+            read_date('Borrow Date (YYYY-MM-DD): ', BorrowDate),
+            add_days_to_date(BorrowDate, 7, DueDate),
+            next_loan_id(LoanID),
+            ( sql_insert_loan(LoanID, BookID, StudentNo, BorrowDate, DueDate) ->
+                assertz(loan(LoanID, BookID, StudentNo, BorrowDate, DueDate, none, 0)),
+                retract(book(BookID, Title, Author, Year, Copies, Dewey)),
+                NewCopies is Copies - 1,
+                assertz(book(BookID, Title, Author, Year, NewCopies, Dewey)),
+                sql_update_book_copies(BookID, NewCopies),
+                format_date_for_display(DueDate, FormattedDueDate),
+                format('[INFO] Loan #~w created. Due date: ~w~n', [LoanID, FormattedDueDate])
             ;
-                read_student_number('Enter Student Number: ', StudentNo),
-                ( \+ borrower(StudentNo, _, _, _, _, _) ->
-                    format('[ERROR] Student Number ~w not found.~n', [StudentNo])
-                ;
-                    read_date('Borrow Date (YYYY-MM-DD): ', BorrowDate),
-                    add_days_to_date(BorrowDate, 7, DueDate),
-                    next_loan_id(LoanID),
-                    ( sql_insert_loan(LoanID, BookID, StudentNo, BorrowDate, DueDate) ->
-                        assertz(loan(LoanID, BookID, StudentNo, BorrowDate, DueDate, none)),
-                        retract(book(BookID, Title, Author, Year, Copies, Dewey)),
-                        NewCopies is Copies - 1,
-                        assertz(book(BookID, Title, Author, Year, NewCopies, Dewey)),
-                        sql_update_book_copies(BookID, NewCopies),
-                        format('[INFO] Loan #~w created. Due date: ~w~n', [LoanID, DueDate])
-                    ;
-                        write('[ERROR] Failed to save loan to database.'), nl
-                    )
-                )
+                write('[ERROR] Failed to save loan to database.'), nl,
+                borrow_book_loop
             )
         )
     ).
@@ -267,36 +312,56 @@ borrow_book :-
 % RETURN BOOK
 % =============================================================
 
+list_unreturned_loans :-
+    loan(_, _, _, _, _, _, 0),
+    nl,
+    write('Active (Unreturned) Loans:'), nl,
+    write('======================================================================'), nl,
+    format('~w~t~8| ~w~t~16| ~w~t~30| ~w~t~44| ~w~n',
+        ['LoanID', 'BookID', 'StudentNo', 'Borrowed', 'Due']),
+    write('======================================================================'), nl,
+    forall(loan(LID2, BkID2, StudentNo2, Borrowed2, Due2, _, 0), (
+        format_date_for_display(Borrowed2, FormattedBorrowed2),
+        format_date_for_display(Due2, FormattedDue2),
+        format('~w~t~8| ~w~t~16| ~w~t~30| ~w~t~44| ~w~n',
+            [LID2, BkID2, StudentNo2, FormattedBorrowed2, FormattedDue2]))),
+    write('======================================================================'), nl.
+
 return_book :-
     nl, write('--- Return Book ---'), nl,
-    read_integer('Enter Loan ID: ', LoanID),
-
-    ( loan(LoanID, BookID, BorrowerID, BorrowDate, DueDate, none) ->
-        read_date('Return Date (YYYY-MM-DD): ', ReturnDate),
-        ( sql_return_loan(LoanID, ReturnDate) ->
-            retract(loan(LoanID, BookID, BorrowerID, BorrowDate, DueDate, none)),
-            assertz(loan(LoanID, BookID, BorrowerID, BorrowDate, DueDate, ReturnDate)),
-            book(BookID, Title, Author, Year, Copies, Dewey),
-            retract(book(BookID, Title, Author, Year, Copies, Dewey)),
-            NewCopies is Copies + 1,
-            assertz(book(BookID, Title, Author, Year, NewCopies, Dewey)),
-            sql_update_book_copies(BookID, NewCopies),
-            compute_fee_for_loan(DueDate, ReturnDate, Fee),
-            ( Fee =:= 0 ->
-                write('[INFO] Returned on time. No fee.'), nl
+    ( list_unreturned_loans ->
+        read_integer('Enter Loan ID: ', LoanID),
+        ( loan(LoanID, BookID, BorrowerID, BorrowDate, DueDate, _, 0) ->
+            read_date('Return Date (YYYY-MM-DD): ', ReturnDate),
+            ( sql_return_loan(LoanID, ReturnDate) ->
+                retract(loan(LoanID, BookID, BorrowerID, BorrowDate, DueDate, _, 0)),
+                assertz(loan(LoanID, BookID, BorrowerID, BorrowDate, DueDate, ReturnDate, 1)),
+                book(BookID, Title, Author, Year, Copies, Dewey),
+                retract(book(BookID, Title, Author, Year, Copies, Dewey)),
+                NewCopies is Copies + 1,
+                assertz(book(BookID, Title, Author, Year, NewCopies, Dewey)),
+                sql_update_book_copies(BookID, NewCopies),
+                compute_fee_for_loan(DueDate, ReturnDate, Fee),
+                write('[INFO] Return recorded successfully.'), nl,
+                ( Fee =:= 0 ->
+                    write('[INFO] No overdue charge.'), nl
+                ;
+                    days_between(DueDate, ReturnDate, DaysLate),
+                    format('[INFO] Overdue by ~w day(s). Charge: P~2f~n', [DaysLate, Fee]),
+                    write('[INFO] Please settle the overdue charge at the Finance Office.'), nl
+                )
             ;
-                days_between(DueDate, ReturnDate, DaysLate),
-                format('[INFO] Returned ~w day(s) late. Fee: P~2f~n', [DaysLate, Fee])
+                write('[ERROR] Failed to update loan in database.'), nl
             )
         ;
-            write('[ERROR] Failed to update loan in database.'), nl
+            ( loan(LoanID, _, _, _, _, _, 1) ->
+                write('[ERROR] This loan has already been returned.'), nl
+            ;
+                format('[ERROR] Loan ID ~w not found.~n', [LoanID])
+            )
         )
     ;
-        ( loan(LoanID, _, _, _, _, Returned), Returned \= none ->
-            write('[ERROR] This loan has already been returned.'), nl
-        ;
-            format('[ERROR] Loan ID ~w not found.~n', [LoanID])
-        )
+        write('[INFO] No active loans to return.'), nl
     ).
 
 % =============================================================
@@ -318,16 +383,18 @@ compute_overdue_fee :-
     nl, write('--- Compute Overdue Fee ---'), nl,
     read_integer('Enter Loan ID: ', LoanID),
 
-    ( loan(LoanID, BookID, StudentNo, BorrowDate, DueDate, DateReturned) ->
+    ( loan(LoanID, BookID, StudentNo, BorrowDate, DueDate, DateReturned, IsReturned) ->
         borrower(StudentNo, Surname, FirstName, MiddleInitial, _, _),
         borrower_full_name(Surname, FirstName, MiddleInitial, FullName),
         book(BookID, Title, _, _, _, _),
+        format_date_for_display(BorrowDate, FormattedBorrowDate),
+        format_date_for_display(DueDate, FormattedDueDate),
         write('Borrower : '), write(FullName), nl,
         write('Book     : '), write(Title), nl,
-        write('Borrowed : '), write(BorrowDate), nl,
-        write('Due Date : '), write(DueDate), nl,
+        write('Borrowed : '), write(FormattedBorrowDate), nl,
+        write('Due Date : '), write(FormattedDueDate), nl,
 
-        ( DateReturned = none ->
+        ( IsReturned =:= 0 ->
             write('Status   : NOT YET RETURNED'), nl,
             get_today(Today),
             compute_fee_for_loan(DueDate, Today, Fee),
@@ -339,7 +406,8 @@ compute_overdue_fee :-
                 write('Fee      : No fee yet (not overdue).'), nl
             )
         ;
-            write('Returned : '), write(DateReturned), nl,
+            format_date_for_display(DateReturned, FormattedDateReturned),
+            write('Returned : '), write(FormattedDateReturned), nl,
             compute_fee_for_loan(DueDate, DateReturned, Fee),
             ( Fee =:= 0 ->
                 write('Fee      : P0.00 (returned on time)'), nl
@@ -446,9 +514,35 @@ list_loans :-
     format('~w~t~8| ~w~t~16| ~w~t~28| ~w~t~40| ~w~t~52| ~w~n',
            ['LoanID', 'BookID', 'StudentNo', 'Borrowed', 'Due', 'Returned']),
     write('================================================================================'), nl,
-    ( loan(LID, BkID, BrID, Borrowed, Due, Ret),
-      ( Ret = none -> RetDisplay = '(active)' ; RetDisplay = Ret ),
-      format('~w~t~8| ~w~t~16| ~w~t~28| ~w~t~40| ~w~t~52| ~w~n',
-             [LID, BkID, BrID, Borrowed, Due, RetDisplay]),
-      fail ; true ),
+    ( current_student_number(StudentNo) ->
+        ( loan(_, _, StudentNo, _, _, _, _) ->
+            ( loan(LID, BkID, StudentNo, Borrowed, Due, Ret, IsReturned),
+              format_date_for_display(Borrowed, FormattedBorrowed),
+              format_date_for_display(Due, FormattedDue),
+              ( IsReturned =:= 0 -> 
+                  RetDisplay = '(active)' 
+              ; 
+                  format_date_for_display(Ret, FormattedRet),
+                  RetDisplay = FormattedRet 
+              ),
+              format('~w~t~8| ~w~t~16| ~w~t~28| ~w~t~40| ~w~t~52| ~w~n',
+                     [LID, BkID, StudentNo, FormattedBorrowed, FormattedDue, RetDisplay]),
+              fail ; true )
+        ;
+            write('[INFO] You have no loans yet.'), nl
+        )
+    ;
+        ( loan(LID, BkID, BrID, Borrowed, Due, Ret, IsReturned),
+          format_date_for_display(Borrowed, FormattedBorrowed),
+          format_date_for_display(Due, FormattedDue),
+          ( IsReturned =:= 0 -> 
+              RetDisplay = '(active)' 
+          ; 
+              format_date_for_display(Ret, FormattedRet),
+              RetDisplay = FormattedRet 
+          ),
+          format('~w~t~8| ~w~t~16| ~w~t~28| ~w~t~40| ~w~t~52| ~w~n',
+                 [LID, BkID, BrID, FormattedBorrowed, FormattedDue, RetDisplay]),
+          fail ; true )
+    ),
     write('================================================================================'), nl.
