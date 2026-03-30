@@ -167,7 +167,7 @@ handle_librarian_choice(2, continue) :- edit_book, pause.
 handle_librarian_choice(3, continue) :- delete_book, pause.
 handle_librarian_choice(4, continue) :- list_books, pause.
 handle_librarian_choice(5, continue) :- search_menu.
-handle_librarian_choice(6, continue) :- list_all_loans_librarian, pause.
+handle_librarian_choice(6, continue) :- view_all_loans.
 handle_librarian_choice(7, back) :- info('Logged out from librarian account.').
 
 search_menu :-

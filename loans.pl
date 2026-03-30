@@ -559,10 +559,27 @@ list_loans :-
     write('================================================================================'), nl.
 
 % =============================================================
-% LIST ALL LOANS (LIBRARIAN VIEW) - All unreturned loans
+% VIEW ALL LOANS (LIBRARIAN VIEW) - Main Menu
 % =============================================================
 
-list_all_loans_librarian :-
+view_all_loans :-
+    repeat,
+    nl,
+    write('--- View All Loans ---'), nl,
+    write('1. View All Active Loans (Unreturned)'), nl,
+    write('2. View All Loans (Including Returned)'), nl,
+    write('3. Back'), nl,
+    read_menu_choice(1, 3, Choice),
+    ( Choice = 1 -> view_all_active_loans, pause, fail
+    ; Choice = 2 -> view_all_loans_including_returned, pause, fail
+    ; Choice = 3 -> !
+    ).
+
+% =============================================================
+% VIEW ALL ACTIVE LOANS (LIBRARIAN VIEW) - Unreturned loans only
+% =============================================================
+
+view_all_active_loans :-
     nl,
     write('================================================================================'), nl,
     format('~w~t~8| ~w~t~35| ~w~t~42| ~w~t~68| ~w~t~92| ~w~n',
@@ -583,10 +600,55 @@ list_all_loans_librarian :-
     catch(disconnect_db, _, true),
     write('================================================================================'), nl.
 
+% =============================================================
+% VIEW ALL LOANS INCLUDING RETURNED (LIBRARIAN VIEW)
+% =============================================================
+
+view_all_loans_including_returned :-
+    nl,
+    write('================================================================================'), nl,
+    format('~w~t~8| ~w~t~35| ~w~t~42| ~w~t~68| ~w~t~92| ~w~t~104| ~w~n',
+           ['LoanID', 'Borrower Name', 'BookID', 'Title', 'Author', 'Borrowed', 'Status']),
+    write('================================================================================'), nl,
+    catch(
+        (   connect_db,
+            SQL = 'SELECT l.loan_id, b.surname, b.first_name, l.book_id, bk.title, bk.author, DATE_FORMAT(l.date_borrowed, "%Y-%m-%d"), DATE_FORMAT(l.due_date, "%Y-%m-%d"), l.is_returned, IFNULL(DATE_FORMAT(l.date_returned, "%Y-%m-%d"), NULL) FROM loans l JOIN borrowers b ON l.student_number = b.student_number JOIN books bk ON l.book_id = bk.book_id ORDER BY l.loan_id',
+            (   odbc_query(opac, SQL, Row),
+                format_loan_row_with_status(Row),
+                fail
+            ;   true
+            )
+        ),
+        Error,
+        format('[DB ERROR] ~w~n', [Error])
+    ),
+    catch(disconnect_db, _, true),
+    write('================================================================================'), nl.
+
 %% format_loan_row_librarian(+Row)
-%  Formats and prints a single loan row for librarian view
+%  Formats and prints a single loan row for librarian view (active loans only)
 format_loan_row_librarian(row(LoanID, Surname, FirstName, BookID, Title, Author, DateBorrowed)) :-
     format_date_for_display(DateBorrowed, FormattedBorrowed),
     format(atom(BorrowerName), '~w, ~w', [Surname, FirstName]),
     format('~w~t~8| ~w~t~35| ~w~t~42| ~w~t~68| ~w~t~92| ~w~n',
            [LoanID, BorrowerName, BookID, Title, Author, FormattedBorrowed]).
+
+%% format_loan_row_with_status(+Row)
+%  Formats and prints a single loan row including status (active/returned/returned late)
+format_loan_row_with_status(row(LoanID, Surname, FirstName, BookID, Title, Author, DateBorrowed, DueDate, IsReturned, DateReturned)) :-
+    format_date_for_display(DateBorrowed, FormattedBorrowed),
+    ( IsReturned =:= 0 ->
+        Status = '(active)'
+    ; DateReturned = 'NULL' ->
+        Status = '(returned)'
+    ;
+        days_between(DueDate, DateReturned, Diff),
+        ( Diff > 0 ->
+            Status = '(returned late)'
+        ;
+            Status = '(returned)'
+        )
+    ),
+    format(atom(BorrowerName), '~w, ~w', [Surname, FirstName]),
+    format('~w~t~8| ~w~t~35| ~w~t~42| ~w~t~68| ~w~t~92| ~w~t~104| ~w~n',
+           [LoanID, BorrowerName, BookID, Title, Author, FormattedBorrowed, Status]).
