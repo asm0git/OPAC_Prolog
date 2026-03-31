@@ -140,13 +140,13 @@ save_data_impl :-
     forall(loan(LID, BID, BrID, DB, DD, Ret, ReturnedFlag),
         (to_iso_date(DB, BorrowedISO),
          to_iso_date(DD, DueISO),
-         (Ret == none ->
-            (format(atom(SQL), 'INSERT INTO loans (loan_id, book_id, student_number, date_borrowed, due_date, date_returned, is_returned) VALUES (~w, ~w, ~w, ~a, ~a, NULL, ~w)', [LID, BID, BrID, BorrowedISO, DueISO, ReturnedFlag]),
-             odbc_query(opac, SQL))
-          ;
-            (to_iso_date(Ret, ReturnISO),
-             format(atom(SQL), 'INSERT INTO loans (loan_id, book_id, student_number, date_borrowed, due_date, date_returned, is_returned) VALUES (~w, ~w, ~w, ~a, ~a, ~a, ~w)', [LID, BID, BrID, BorrowedISO, DueISO, ReturnISO, ReturnedFlag]),
-             odbc_query(opac, SQL))))),
+            (Ret == none ->
+                (format(atom(SQL), 'INSERT INTO loans (loan_id, book_id, student_number, date_borrowed, due_date, date_returned, is_returned) VALUES (~w, ~w, ~w, \'~w\', \'~w\', NULL, ~w)', [LID, BID, BrID, BorrowedISO, DueISO, ReturnedFlag]),
+                 odbc_query(opac, SQL))
+             ;
+                (to_iso_date(Ret, ReturnISO),
+                 format(atom(SQL), 'INSERT INTO loans (loan_id, book_id, student_number, date_borrowed, due_date, date_returned, is_returned) VALUES (~w, ~w, ~w, \'~w\', \'~w\', \'~w\', ~w)', [LID, BID, BrID, BorrowedISO, DueISO, ReturnISO, ReturnedFlag]),
+                 odbc_query(opac, SQL))))),
     
     write('>> [SUCCESS] Database updated.'), nl,
     disconnect_db.
@@ -186,12 +186,14 @@ to_flag_value(Value, Flag) :-
     ).
 
 sql_null_value(Value) :-
-    Value == @(null), !.
+    % Some ODBC drivers return SQL NULL as the atom '$null$'. Accept that
+    % representation as well as other common null-ish strings.
+    ( Value == '$null$' ; Value == @(null) ), !.
 sql_null_value(Value) :-
     format(string(Text), '~w', [Value]),
     normalize_space(string(Clean), Text),
     string_lower(Clean, Lower),
-    member(Lower, ["null", "none", "", "0000-00-00", "0000-00-00 00:00:00"]).
+    member(Lower, ["$null$", "null", "none", "", "0000-00-00", "0000-00-00 00:00:00"]).
 
 to_iso_date(Value, ISO) :-
     % Converts supported SQL/Prolog date representations to YYYY-MM-DD atom.

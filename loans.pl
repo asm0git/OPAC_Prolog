@@ -182,56 +182,61 @@ sql_insert_loan(LID, BkID, StudentNo, Borrowed, Due) :-
     catch((
         connect_db,
         format(atom(SQL), 'INSERT INTO loans (loan_id, book_id, student_number, date_borrowed, due_date, date_returned, is_returned) VALUES (~w, ~w, ~w, \'~w\', \'~w\', NULL, 0)', [LID, BkID, StudentNo, Borrowed, Due]),
-        odbc_query(opac, SQL),
-        disconnect_db
+        odbc_query(opac, SQL)
     ), Error, (
         format('[DB ERROR] insert loan: ~w~n', [Error]),
         disconnect_db, fail
-    )).
+    )),
+    % Disconnect only after successful insert (not in critical path of catch).
+    catch(disconnect_db, _, true).
 
 sql_return_loan(LoanID, ReturnDate) :-
     catch((
         connect_db,
         format(atom(SQL), 'UPDATE loans SET date_returned=\'~w\', is_returned=1 WHERE loan_id=~w', [ReturnDate, LoanID]),
-        odbc_query(opac, SQL),
-        disconnect_db
+        odbc_query(opac, SQL)
     ), Error, (
         format('[DB ERROR] return loan: ~w~n', [Error]),
         disconnect_db, fail
-    )).
+    )),
+    % Disconnect only after successful update (not in critical path of catch).
+    catch(disconnect_db, _, true).
 
 sql_update_book_copies(BookID, NewCopies) :-
     catch((
         connect_db,
         format(atom(SQL), 'UPDATE books SET copies=~w WHERE book_id=~w', [NewCopies, BookID]),
-        odbc_query(opac, SQL),
-        disconnect_db
+        odbc_query(opac, SQL)
     ), Error, (
         format('[DB ERROR] update copies: ~w~n', [Error]),
         disconnect_db, fail
-    )).
+    )),
+    % Disconnect only after successful update (not in critical path of catch).
+    catch(disconnect_db, _, true).
 
 sql_insert_borrower(StudentNo, Surname, FirstName, MiddleInitial, Department, Password) :-
     catch((
         connect_db,
         format(atom(SQL), 'INSERT INTO borrowers (student_number, surname, first_name, middle_initial, department, password) VALUES (~w, \'~w\', \'~w\', \'~w\', \'~w\', \'~w\')', [StudentNo, Surname, FirstName, MiddleInitial, Department, Password]),
-        odbc_query(opac, SQL),
-        disconnect_db
+        odbc_query(opac, SQL)
     ), Error, (
         format('[DB ERROR] insert borrower: ~w~n', [Error]),
         disconnect_db, fail
-    )).
+    )),
+    % Disconnect only after successful insert (not in critical path of catch).
+    catch(disconnect_db, _, true).
 
 sql_insert_librarian(StaffNumber, Surname, FirstName, MiddleInitial, Position, Password) :-
     catch((
         connect_db,
         format(atom(SQL), 'INSERT INTO librarians (staff_number, surname, first_name, middle_initial, position, password) VALUES (\'~w\', \'~w\', \'~w\', \'~w\', \'~w\', \'~w\')', [StaffNumber, Surname, FirstName, MiddleInitial, Position, Password]),
-        odbc_query(opac, SQL),
-        disconnect_db
+        odbc_query(opac, SQL)
     ), Error, (
         format('[DB ERROR] insert librarian: ~w~n', [Error]),
         disconnect_db, fail
-    )).
+    )),
+    % Disconnect only after successful insert (not in critical path of catch).
+    catch(disconnect_db, _, true).
 
 % =============================================================
 % ADD BORROWER

@@ -111,12 +111,13 @@ sql_insert_book(ID, Title, Author, Year, Copies, Dewey, StaffNumber) :-
     catch((
         connect_db,
         format(atom(SQL), 'INSERT INTO books (book_id, title, author, year_published, copies, dewey_decimal, added_by_staff_number) VALUES (~w, \'~w\', \'~w\', ~w, ~w, ~w, \'~w\')', [ID, Title, Author, Year, Copies, Dewey, StaffNumber]),
-        odbc_query(opac, SQL),
-        disconnect_db
+        odbc_query(opac, SQL)
     ), Error, (
         format('[DB ERROR] add book: ~w~n', [Error]),
         disconnect_db, fail
-    )).
+    )),
+    % Disconnect only after successful insert (not in critical path of catch).
+    catch(disconnect_db, _, true).
 
 % -------------------------------------------------
 % EDIT BOOK
@@ -168,12 +169,13 @@ sql_update_book(ID, Title, Author, Year, Copies, Dewey) :-
     catch((
         connect_db,
         format(atom(SQL), 'UPDATE books SET title=\'~w\', author=\'~w\', year_published=~w, copies=~w, dewey_decimal=~w WHERE book_id=~w', [Title, Author, Year, Copies, Dewey, ID]),
-        odbc_query(opac, SQL),
-        disconnect_db
+        odbc_query(opac, SQL)
     ), Error, (
         format('[DB ERROR] edit book: ~w~n', [Error]),
         disconnect_db, fail
-    )).
+    )),
+    % Disconnect only after successful update (not in critical path of catch).
+    catch(disconnect_db, _, true).
 
 % -------------------------------------------------
 % DELETE BOOK  (safe — blocked if active loan exists)
@@ -208,12 +210,13 @@ sql_delete_book(ID) :-
     catch((
         connect_db,
         format(atom(SQL), 'DELETE FROM books WHERE book_id=~w', [ID]),
-        odbc_query(opac, SQL),
-        disconnect_db
+        odbc_query(opac, SQL)
     ), Error, (
         format('[DB ERROR] delete book: ~w~n', [Error]),
         disconnect_db, fail
-    )).
+    )),
+    % Disconnect only after successful delete (not in critical path of catch).
+    catch(disconnect_db, _, true).
 
 % -------------------------------------------------
 % LIST ALL BOOKS
