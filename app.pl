@@ -12,16 +12,18 @@
 :- initialization(start).
 
 % MASTER SCHEMA (Required for SQL integration)
-:- dynamic book/6.
+:- dynamic book/7.
 :- dynamic borrower/6.
 :- dynamic loan/7.
 :- dynamic librarian/6.
 :- dynamic current_login_name/1.
 :- dynamic current_student_number/1.
+:- dynamic current_librarian_staff_number/1.
 
-:- ensure_loaded(storage).
-:- ensure_loaded(books).
-:- ensure_loaded(loans).
+:- ensure_loaded('storage.pl').
+:- ensure_loaded('books.pl').
+:- ensure_loaded('loans.pl').
+:- discontiguous read_middle_initial/2.
 :- use_module(library(readutil)).
 :- use_module(library(aggregate)).
 
@@ -61,6 +63,7 @@ login('USER') :-
             borrower_full_name(Surname, FirstName, MiddleInitial, FullName),
             set_current_login_name(FullName),
             set_current_student_number(StudentNo),
+            clear_current_librarian_staff_number,
             info('Login successful.')
         ;
             info('Incorrect password. Login failed.'),
@@ -91,6 +94,7 @@ login('LIBRARIAN') :-
             format(string(DisplayName), 'Librarian ~w (~w)', [FullName, StaffNumber]),
             set_current_login_name(DisplayName),
             clear_current_student_number,
+            set_current_librarian_staff_number(StaffNumber),
             info('Login successful.')
         ;
             info('Incorrect password. Login failed.'),
@@ -119,6 +123,7 @@ register_new_user(StudentNo) :-
         borrower_full_name(Surname, FirstName, MiddleInitial, FullName),
         set_current_login_name(FullName),
         set_current_student_number(StudentNo),
+        clear_current_librarian_staff_number,
         info('Registration successful. Login successful.')
     ;
         info('Failed to register account.'),
@@ -138,6 +143,7 @@ register_new_librarian(StaffNumber) :-
         format(string(DisplayName), 'Librarian ~w (~w)', [FullName, StaffNumber]),
         set_current_login_name(DisplayName),
         clear_current_student_number,
+        set_current_librarian_staff_number(StaffNumber),
         info('Registration successful. Login successful.')
     ;
         info('Failed to register account.'),
@@ -162,6 +168,7 @@ handle_user_choice(3, continue) :- loans_menu.
 handle_user_choice(4, back) :-
     retractall(current_login_name(_)),
     clear_current_student_number,
+    clear_current_librarian_staff_number,
     info('Logged out from user account.').
 
 librarian_menu :-
@@ -182,10 +189,14 @@ librarian_menu :-
 handle_librarian_choice(1, continue) :- add_book, pause.
 handle_librarian_choice(2, continue) :- edit_book, pause.
 handle_librarian_choice(3, continue) :- delete_book, pause.
-handle_librarian_choice(4, continue) :- list_books, pause.
+handle_librarian_choice(4, continue) :- list_books_librarian, pause.
 handle_librarian_choice(5, continue) :- search_menu.
 handle_librarian_choice(6, continue) :- view_all_loans.
-handle_librarian_choice(7, back) :- info('Logged out from librarian account.').
+handle_librarian_choice(7, back) :-
+    retractall(current_login_name(_)),
+    clear_current_student_number,
+    clear_current_librarian_staff_number,
+    info('Logged out from librarian account.').
 
 search_menu :-
     repeat,
@@ -242,12 +253,6 @@ read_menu_choice(Min, Max, Choice) :-
         info('Invalid choice. Please try again.'),
         fail
     ).
-
-read_text(Prompt, Text) :-
-    % Normalizes user input so downstream predicates receive trimmed text.
-    write(Prompt),
-    read_line_to_string(user_input, Raw),
-    normalize_space(string(Text), Raw).
 
 read_capitalized_name(Prompt, Name) :-
     repeat,
@@ -328,18 +333,6 @@ read_middle_initial(Prompt, MiddleInitial) :-
         fail
     ).
 
-read_student_number(Prompt, StudentNo) :-
-    repeat,
-    read_integer(Prompt, Candidate),
-    ( Candidate >= 10000000,
-      Candidate =< 99999999 ->
-        StudentNo = Candidate,
-        !
-    ;
-        info('Student number must be exactly 8 digits.'),
-        fail
-    ).
-
 ask_yes_no(Prompt, Answer) :-
     repeat,
     write(Prompt),
@@ -356,9 +349,6 @@ ask_yes_no(Prompt, Answer) :-
         info('Please answer y or n.'),
         fail
     ).
-
-borrower_full_name(Surname, FirstName, MiddleInitial, FullName) :-
-    format(atom(FullName), '~w, ~w ~w.', [Surname, FirstName, MiddleInitial]).
 
 as_string(Value, Text) :-
     % Utility to compare values safely regardless of atom/string/number source.
@@ -449,7 +439,7 @@ collect_stats(N, Q, AccBooks, AccLoans, Books, Loans) :-
     collect_stats(N1, Q, NextBooks, NextLoans, Books, Loans).
 
 send_book_count(Q) :-
-    aggregate_all(count, book(_, _, _, _, _, _), Count),
+    aggregate_all(count, book(_, _, _, _, _, _, _), Count),
     thread_send_message(Q, metric(books, Count)).
 
 send_active_loan_count(Q) :-
@@ -457,8 +447,15 @@ send_active_loan_count(Q) :-
     thread_send_message(Q, metric(active_loans, Count)).
 
 sequential_runtime_stats(Books, ActiveLoans) :-
-    aggregate_all(count, book(_, _, _, _, _, _), Books),
+    aggregate_all(count, book(_, _, _, _, _, _, _), Books),
     aggregate_all(count, loan(_, _, _, _, _, _, 0), ActiveLoans).
+
+set_current_librarian_staff_number(StaffNo) :-
+    retractall(current_librarian_staff_number(_)),
+    assertz(current_librarian_staff_number(StaffNo)).
+
+clear_current_librarian_staff_number :-
+    retractall(current_librarian_staff_number(_)).
 
 info(Message) :-
     % Uniform info-message formatter for consistent CLI output.

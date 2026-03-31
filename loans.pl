@@ -288,11 +288,11 @@ borrow_book_loop :-
     read_integer('Enter Book ID    : ', BookID),
     ( BookID =:= -1 ->
         true
-    ; \+ book(BookID, _, _, _, _, _) ->
+    ; \+ book(BookID, _, _, _, _, _, _) ->
         format('[ERROR] Book ID ~w not found. Try again.~n', [BookID]),
         borrow_book_loop
     ;
-        book(BookID, Title, Author, Year, Copies, Dewey),
+        book(BookID, Title, Author, Year, Copies, Dewey, AddedByStaffNo),
         ( Copies =< 0 ->
             write('[ERROR] No available copies for this book.'), nl,
             borrow_book_loop
@@ -304,9 +304,9 @@ borrow_book_loop :-
             next_loan_id(LoanID),
             ( sql_insert_loan(LoanID, BookID, StudentNo, BorrowDate, DueDate) ->
                 assertz(loan(LoanID, BookID, StudentNo, BorrowDate, DueDate, none, 0)),
-                retract(book(BookID, Title, Author, Year, Copies, Dewey)),
+                retract(book(BookID, Title, Author, Year, Copies, Dewey, AddedByStaffNo)),
                 NewCopies is Copies - 1,
-                assertz(book(BookID, Title, Author, Year, NewCopies, Dewey)),
+                assertz(book(BookID, Title, Author, Year, NewCopies, Dewey, AddedByStaffNo)),
                 sql_update_book_copies(BookID, NewCopies),
                 format_date_for_display(DueDate, FormattedDueDate),
                 format('[INFO] Loan #~w created. Due date: ~w~n', [LoanID, FormattedDueDate])
@@ -331,7 +331,7 @@ list_unreturned_loans :-
         ['LoanID', 'Title', 'Author', 'Borrowed', 'Due']),
     write('================================================================================'), nl,
     forall(loan(LID2, BkID2, StudentNo, Borrowed2, Due2, _, 0), (
-        book(BkID2, Title2, Author2, _, _, _),
+        book(BkID2, Title2, Author2, _, _, _, _),
         format_date_for_display(Borrowed2, FormattedBorrowed2),
         format_date_for_display(Due2, FormattedDue2),
         format('~w~t~8| ~w~t~32| ~w~t~56| ~w~t~68| ~w~n',
@@ -362,10 +362,10 @@ return_book :-
                     % Update memory only after SQL write succeeds.
                     retract(loan(LoanID, BookID, StudentNo, BorrowDate, DueDate, _, 0)),
                     assertz(loan(LoanID, BookID, StudentNo, BorrowDate, DueDate, ReturnDate, 1)),
-                    book(BookID, Title, Author, Year, Copies, Dewey),
-                    retract(book(BookID, Title, Author, Year, Copies, Dewey)),
+                    book(BookID, Title, Author, Year, Copies, Dewey, AddedByStaffNo),
+                    retract(book(BookID, Title, Author, Year, Copies, Dewey, AddedByStaffNo)),
                     NewCopies is Copies + 1,
-                    assertz(book(BookID, Title, Author, Year, NewCopies, Dewey)),
+                    assertz(book(BookID, Title, Author, Year, NewCopies, Dewey, AddedByStaffNo)),
                     sql_update_book_copies(BookID, NewCopies),
                     compute_fee_for_loan(DueDate, ReturnDate, Fee),
                     write('[INFO] Return recorded successfully.'), nl,
@@ -415,7 +415,7 @@ compute_overdue_fee :-
     ( loan(LoanID, BookID, StudentNo, BorrowDate, DueDate, DateReturned, IsReturned) ->
         borrower(StudentNo, Surname, FirstName, MiddleInitial, _, _),
         borrower_full_name(Surname, FirstName, MiddleInitial, FullName),
-        book(BookID, Title, _, _, _, _),
+        book(BookID, Title, _, _, _, _, _),
         format_date_for_display(BorrowDate, FormattedBorrowDate),
         format_date_for_display(DueDate, FormattedDueDate),
         write('Borrower : '), write(FullName), nl,
@@ -546,7 +546,7 @@ list_loans :-
     ( current_student_number(StudentNo) ->
         ( loan(_, _, StudentNo, _, _, _, _) ->
             ( loan(LID, BkID, StudentNo, Borrowed, Due, _, IsReturned),
-              book(BkID, Title, Author, _, _, _),
+              book(BkID, Title, Author, _, _, _, _),
               format_date_for_display(Borrowed, FormattedBorrowed),
               format_date_for_display(Due, FormattedDue),
               ( IsReturned =:= 0 -> 
@@ -562,7 +562,7 @@ list_loans :-
         )
     ;
         ( loan(LID, BkID, _, Borrowed, Due, _, IsReturned),
-          book(BkID, Title, Author, _, _, _),
+          book(BkID, Title, Author, _, _, _, _),
           format_date_for_display(Borrowed, FormattedBorrowed),
           format_date_for_display(Due, FormattedDue),
           ( IsReturned =:= 0 -> 

@@ -30,7 +30,7 @@ load_data :-
         connect_db,
 
         % 1. Clear current Prolog memory
-        retractall(book(_, _, _, _, _, _)),
+        retractall(book(_, _, _, _, _, _, _)),
         retractall(borrower(_, _, _, _, _, _)),
         retractall(loan(_, _, _, _, _, _, _)),
         retractall(librarian(_, _, _, _, _, _)),
@@ -38,14 +38,20 @@ load_data :-
         % 2. Load Books
         forall(
             odbc_query(opac, 
-                'SELECT book_id, title, author, year_published, copies, dewey_decimal FROM books', 
-                row(RawID, T, A, RawY, RawC, RawD)),
+                'SELECT book_id, title, author, year_published, copies, dewey_decimal, added_by_staff_number FROM books', 
+                row(RawID, T, A, RawY, RawC, RawD, RawAddedBy)),
             (
                 to_integer_value(RawID, ID),
                 to_integer_value(RawY, Y),
                 to_integer_value(RawC, C),
                 to_number(RawD, D),
-                assertz(book(ID, T, A, Y, C, D))
+                ( sql_null_value(RawAddedBy) ->
+                    AddedBy = none
+                ; atom(RawAddedBy) ->
+                    AddedBy = RawAddedBy
+                ; atom_string(AddedBy, RawAddedBy)
+                ),
+                assertz(book(ID, T, A, Y, C, D, AddedBy))
             )
         ),
 
@@ -102,55 +108,53 @@ load_data :-
 
 save_data :-
     write('--- Saving to SQL Database ---'), nl,
-    ( catch(connect_db, _, fail) -> true ; write('>> [SAVE ERROR] Could not connect to database.'), nl, fail ),
+    (catch(connect_db, _, fail) -> true ; (write('>> [SAVE ERROR] Could not connect to database.'), nl, fail)),
+    catch(save_data_impl, Error, handle_save_error(Error)).
+
+save_data_impl :-
+    % 1. Clear SQL tables
+    odbc_query(opac, 'DELETE FROM loans'),
+    odbc_query(opac, 'DELETE FROM books'),
+    odbc_query(opac, 'DELETE FROM borrowers'),
+    odbc_query(opac, 'DELETE FROM librarians'),
     
-    catch((
-        % 1. Clear SQL tables before full snapshot write.
-        %    This keeps SQL aligned with current in-memory facts.
-        odbc_query(opac, 'DELETE FROM loans'),
-        odbc_query(opac, 'DELETE FROM books'),
-        odbc_query(opac, 'DELETE FROM borrowers'),
-        odbc_query(opac, 'DELETE FROM librarians'),
+    % 2. Sync Librarians
+    forall(librarian(SN, Sur, FN, MI, Pos, Pwd),
+        (format(atom(SQL), 'INSERT INTO librarians (staff_number, surname, first_name, middle_initial, position, password) VALUES (~q, ~q, ~q, ~q, ~q, ~q)', [SN, Sur, FN, MI, Pos, Pwd]),
+         odbc_query(opac, SQL))),
+    
+    % 3. Sync Books
+    forall(book(ID, T, A, Y, C, D, AddedBy),
+        ((AddedBy == none ->
+            format(atom(SQL), 'INSERT INTO books (book_id, title, author, year_published, copies, dewey_decimal, added_by_staff_number) VALUES (~w, ~q, ~q, ~w, ~w, ~w, NULL)', [ID, T, A, Y, C, D])
+         ;
+            format(atom(SQL), 'INSERT INTO books (book_id, title, author, year_published, copies, dewey_decimal, added_by_staff_number) VALUES (~w, ~q, ~q, ~w, ~w, ~w, ~q)', [ID, T, A, Y, C, D, AddedBy])),
+         odbc_query(opac, SQL))),
+    
+    % 4. Sync Borrowers
+    forall(borrower(StudentNo, Surname, FirstName, MiddleInitial, Dept, P),
+        (format(atom(SQL), 'INSERT INTO borrowers (student_number, surname, first_name, middle_initial, department, password) VALUES (~w, ~q, ~q, ~q, ~q, ~q)', [StudentNo, Surname, FirstName, MiddleInitial, Dept, P]),
+         odbc_query(opac, SQL))),
+    
+    % 5. Sync Loans
+    forall(loan(LID, BID, BrID, DB, DD, Ret, ReturnedFlag),
+        (to_iso_date(DB, BorrowedISO),
+         to_iso_date(DD, DueISO),
+         (Ret == none ->
+            (format(atom(SQL), 'INSERT INTO loans (loan_id, book_id, student_number, date_borrowed, due_date, date_returned, is_returned) VALUES (~w, ~w, ~w, ~a, ~a, NULL, ~w)', [LID, BID, BrID, BorrowedISO, DueISO, ReturnedFlag]),
+             odbc_query(opac, SQL))
+          ;
+            (to_iso_date(Ret, ReturnISO),
+             format(atom(SQL), 'INSERT INTO loans (loan_id, book_id, student_number, date_borrowed, due_date, date_returned, is_returned) VALUES (~w, ~w, ~w, ~a, ~a, ~a, ~w)', [LID, BID, BrID, BorrowedISO, DueISO, ReturnISO, ReturnedFlag]),
+             odbc_query(opac, SQL))))),
+    
+    write('>> [SUCCESS] Database updated.'), nl,
+    disconnect_db.
 
-        % 2. Sync Books
-        forall(book(ID, T, A, Y, C, D),
-               ( format(atom(SQL), 'INSERT INTO books VALUES (~w, \'~w\', \'~w\', ~w, ~w, ~w)', [ID, T, A, Y, C, D]),
-                 odbc_query(opac, SQL) )),
-
-         % 3. Sync Borrowers
-         forall(borrower(StudentNo, Surname, FirstName, MiddleInitial, Dept, P),
-             ( format(atom(SQL), 'INSERT INTO borrowers (student_number, surname, first_name, middle_initial, department, password) VALUES (~w, \'~w\', \'~w\', \'~w\', \'~w\', \'~w\')', [StudentNo, Surname, FirstName, MiddleInitial, Dept, P]),
-                 odbc_query(opac, SQL) )),
-
-        % 4. Sync Loans (persist explicit is_returned boolean)
-        forall(loan(LID, BID, BrID, DB, DD, Ret, ReturnedFlag),
-               ( to_iso_date(DB, BorrowedISO),
-                 to_iso_date(DD, DueISO),
-                 ( Ret == none ->
-                     format(atom(SQL), 'INSERT INTO loans (loan_id, book_id, student_number, date_borrowed, due_date, date_returned, is_returned) VALUES (~w, ~w, ~w, \'~a\', \'~a\', NULL, ~w)', [LID, BID, BrID, BorrowedISO, DueISO, ReturnedFlag]),
-                     odbc_query(opac, SQL)
-                 ;
-                     to_iso_date(Ret, ReturnISO),
-                     format(atom(SQL), 'INSERT INTO loans (loan_id, book_id, student_number, date_borrowed, due_date, date_returned, is_returned) VALUES (~w, ~w, ~w, \'~a\', \'~a\', \'~a\', ~w)', [LID, BID, BrID, BorrowedISO, DueISO, ReturnISO, ReturnedFlag]),
-                     odbc_query(opac, SQL)
-                 )
-               )),
-
-        % 5. Sync Librarians
-        forall(librarian(SN, Sur, FN, MI, Pos, Pwd),
-               ( format(atom(SQL), 'INSERT INTO librarians (staff_number, surname, first_name, middle_initial, position, password) VALUES (\'~w\', \'~w\', \'~w\', \'~w\', \'~w\', \'~w\')', [SN, Sur, FN, MI, Pos, Pwd]),
-                 odbc_query(opac, SQL) )),
-
-        % 6. If all successful
-        write('>> [SUCCESS] Database updated.'), nl,
-        disconnect_db
-    ), 
-    Error, 
-    (
-        format('>> [SAVE ERROR] Failed to update database: ~w~n', [Error]),
-        disconnect_db,
-        fail  % Fail the save_data predicate on error
-    )).
+handle_save_error(Error) :-
+    format('>> [SAVE ERROR] Failed to update database: ~w~n', [Error]),
+    disconnect_db,
+    fail.
 
 to_number(Value, Number) :-
     % Normalizes ODBC return values (atom/string/number) to a Prolog number.

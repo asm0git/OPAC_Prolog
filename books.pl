@@ -26,7 +26,7 @@ book_status(_, _, 'Available').
 
 %% next_book_id(-ID)
 next_book_id(ID) :-
-    findall(N, book(N, _, _, _, _, _), IDs),
+    findall(N, book(N, _, _, _, _, _, _), IDs),
     ( IDs = [] -> ID = 1 ; max_list(IDs, Max), ID is Max + 1 ).
 
 % -------------------------------------------------
@@ -83,6 +83,12 @@ read_valid_dewey(Prompt, Dewey) :-
 
 add_book :-
     nl, write('--- Add New Book ---'), nl,
+    ( current_librarian_staff_number(StaffNumber) ->
+        true
+    ;
+        write('[ERROR] Only logged-in librarians can add books.'), nl,
+        fail
+    ),
     read_text('Title        : ', Title),
     ( Title = '' ->
         write('[ERROR] Title cannot be blank.'), nl
@@ -92,19 +98,19 @@ add_book :-
         read_valid_copies('Copies       : ', Copies),
         read_valid_dewey('Dewey Number : ', Dewey),
         next_book_id(ID),
-        ( sql_insert_book(ID, Title, Author, Year, Copies, Dewey) ->
-            assertz(book(ID, Title, Author, Year, Copies, Dewey)),
+        ( sql_insert_book(ID, Title, Author, Year, Copies, Dewey, StaffNumber) ->
+            assertz(book(ID, Title, Author, Year, Copies, Dewey, StaffNumber)),
             format('[INFO] Book added successfully. Book ID: ~w~n', [ID])
         ;
             write('[ERROR] Failed to save book to database.'), nl
         )
     ).
 
-sql_insert_book(ID, Title, Author, Year, Copies, Dewey) :-
+sql_insert_book(ID, Title, Author, Year, Copies, Dewey, StaffNumber) :-
     % Persist new book row first; memory fact is asserted by caller on success.
     catch((
         connect_db,
-        format(atom(SQL), 'INSERT INTO books (book_id, title, author, year_published, copies, dewey_decimal) VALUES (~w, \'~w\', \'~w\', ~w, ~w, ~w)', [ID, Title, Author, Year, Copies, Dewey]),
+        format(atom(SQL), 'INSERT INTO books (book_id, title, author, year_published, copies, dewey_decimal, added_by_staff_number) VALUES (~w, \'~w\', \'~w\', ~w, ~w, ~w, \'~w\')', [ID, Title, Author, Year, Copies, Dewey, StaffNumber]),
         odbc_query(opac, SQL),
         disconnect_db
     ), Error, (
@@ -137,7 +143,7 @@ read_num_or_keep(Prompt, Old, New) :-
 edit_book :-
     nl, write('--- Edit Book ---'), nl,
     read_integer('Enter Book ID: ', ID),
-    ( book(ID, OldTitle, OldAuthor, OldYear, OldCopies, OldDewey) ->
+    ( book(ID, OldTitle, OldAuthor, OldYear, OldCopies, OldDewey, AddedByStaffNo) ->
         format('Current: ~w | ~w | ~w | copies: ~w | dewey: ~w~n',
                [OldTitle, OldAuthor, OldYear, OldCopies, OldDewey]),
         nl, write('(Enter "-" to keep current value)'), nl,
@@ -148,8 +154,8 @@ edit_book :-
         read_num_or_keep('New Dewey Number : ', OldDewey,   NewDewey),
         % Keep in-memory and SQL data synchronized after successful update.
         ( sql_update_book(ID, NewTitle, NewAuthor, NewYear, NewCopies, NewDewey) ->
-            retract(book(ID, OldTitle, OldAuthor, OldYear, OldCopies, OldDewey)),
-            assertz(book(ID, NewTitle, NewAuthor, NewYear, NewCopies, NewDewey)),
+            retract(book(ID, OldTitle, OldAuthor, OldYear, OldCopies, OldDewey, AddedByStaffNo)),
+            assertz(book(ID, NewTitle, NewAuthor, NewYear, NewCopies, NewDewey, AddedByStaffNo)),
             write('[INFO] Book updated successfully.'), nl
         ;
             write('[ERROR] Failed to update book in database.'), nl
@@ -176,19 +182,19 @@ sql_update_book(ID, Title, Author, Year, Copies, Dewey) :-
 delete_book :-
     nl, write('--- Delete Book ---'), nl,
     read_integer('Enter Book ID: ', ID),
-    ( \+ book(ID, _, _, _, _, _) ->
+    ( \+ book(ID, _, _, _, _, _, _) ->
         format('[ERROR] Book ID ~w not found.~n', [ID])
     ; loan(_, ID, _, _, _, _, 0) ->
         write('[ERROR] Cannot delete: this book has an active loan.'), nl
     ;
-        book(ID, Title, _, _, _, _),
+        book(ID, Title, _, _, _, _, _),
         format('Confirm delete "~w"? (yes/no): ', [Title]),
         read_line_to_string(user_input, Ans),
         normalize_space(string(AnsClean), Ans),
         ( AnsClean = "yes" ->
             ( sql_delete_book(ID) ->
                 % Remove fact only after SQL delete succeeds.
-                retract(book(ID, _, _, _, _, _)),
+                retract(book(ID, _, _, _, _, _, _)),
                 write('[INFO] Book deleted successfully.'), nl
             ;
                 write('[ERROR] Failed to delete book from database.'), nl
@@ -218,9 +224,25 @@ list_books :-
     % Reuse shared table printer for consistent catalog formatting.
     print_book_table('(No books on record.)',
         forall(
-            book(ID, Title, Author, Year, Copies, Dewey),
+            book(ID, Title, Author, Year, Copies, Dewey, _),
             print_book_row(ID, Title, Author, Year, Copies, Dewey)
         )).
+
+list_books_librarian :-
+    nl,
+    librarian_book_sep,
+    format('~w~t~8| ~w~t~46| ~w~t~68| ~w~t~74| ~w~t~82| ~w~t~90| ~w~t~108| ~w~t~138| ~w~n',
+           ['ID', 'Title', 'Author', 'Year', 'Copies', 'Dewey', 'Status', 'Added By', 'Added By ID']),
+    librarian_book_sep,
+    ( book(_, _, _, _, _, _, _) ->
+        forall(
+            book(ID, Title, Author, Year, Copies, Dewey, AddedByStaffNo),
+            print_librarian_book_row(ID, Title, Author, Year, Copies, Dewey, AddedByStaffNo)
+        )
+    ;
+        write('(No books on record.)'), nl
+    ),
+    librarian_book_sep.
 
 % -------------------------------------------------
 % SEARCH: EXACT TITLE
@@ -231,7 +253,7 @@ search_book_by_title :-
     read_text('Enter exact title: ', QueryTitle),
     title_key(QueryTitle, QueryKey),
     findall(row(ID, Title, Author, Year, Copies, Dewey),
-            ( book(ID, Title, Author, Year, Copies, Dewey),
+            ( book(ID, Title, Author, Year, Copies, Dewey, _),
                             % Compare normalized keys so case/spacing variations still match.
               title_key(Title, BookKey),
               QueryKey == BookKey ),
@@ -251,7 +273,7 @@ search_title_keyword :-
     read_text('Enter keyword: ', Keyword),
     downcase_atom(Keyword, KeywordLower),
     findall(row(ID, Title, Author, Year, Copies, Dewey),
-            ( book(ID, Title, Author, Year, Copies, Dewey),
+            ( book(ID, Title, Author, Year, Copies, Dewey, _),
               downcase_atom(Title, TitleLower),
               sub_atom(TitleLower, _, _, _, KeywordLower) ),
             Rows),
@@ -428,7 +450,7 @@ list_books_by_category :-
     format('Books in category ~w-~w:~n', [Base, CategoryEnd]),
     print_book_table('(No books in that category range.)',
         forall(
-            ( book(ID, Title, Author, Year, Copies, Dewey),
+                        ( book(ID, Title, Author, Year, Copies, Dewey, _),
               Dewey >= Base, Dewey < CategoryEnd ),
             print_book_row(ID, Title, Author, Year, Copies, Dewey)
         )).
@@ -544,6 +566,24 @@ print_book_row(ID, Title, Author, Year, Copies, Dewey) :-
     book_status(ID, Copies, Status),
     format('~w~t~8| ~w~t~46| ~w~t~68| ~w~t~74| ~w~t~82| ~w~t~90| ~w~t~110| ~w~n',
            [ID, Title, Author, Year, Copies, Dewey, Category, Status]).
+
+librarian_book_sep :-
+    write('========================================================================================================================================================'), nl.
+
+print_librarian_book_row(ID, Title, Author, Year, Copies, Dewey, AddedByStaffNo) :-
+    book_status(ID, Copies, Status),
+    librarian_label_for_book(AddedByStaffNo, AddedByName),
+    format('~w~t~8| ~w~t~46| ~w~t~68| ~w~t~74| ~w~t~82| ~w~t~90| ~w~t~108| ~w~t~138| ~w~n',
+           [ID, Title, Author, Year, Copies, Dewey, Status, AddedByName, AddedByStaffNo]).
+
+librarian_label_for_book(StaffNo, Label) :-
+    ( StaffNo == none ->
+        Label = '(unknown)'
+    ; librarian(StaffNo, Surname, FirstName, _, _, _) ->
+        format(atom(Label), '~w, ~w', [Surname, FirstName])
+    ;
+        Label = '(unknown)'
+    ).
 
 %% print_book_table(+EmptyMsg, +RowGoal)
 %  Prints header, runs RowGoal to print rows, then a closing separator.
