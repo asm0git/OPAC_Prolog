@@ -110,7 +110,7 @@ sql_insert_book(ID, Title, Author, Year, Copies, Dewey, StaffNumber) :-
     % Persist new book row first; memory fact is asserted by caller on success.
     catch((
         connect_db,
-        format(atom(SQL), 'INSERT INTO books (book_id, title, author, year_published, copies, dewey_decimal, added_by_staff_number) VALUES (~w, \'~w\', \'~w\', ~w, ~w, ~w, \'~w\')', [ID, Title, Author, Year, Copies, Dewey, StaffNumber]),
+        format(atom(SQL), 'INSERT INTO books (book_id, title, author, year_published, copies, dewey_decimal, added_by_staff_number) VALUES (~w, ~q, ~q, ~w, ~w, ~w, ~q)', [ID, Title, Author, Year, Copies, Dewey, StaffNumber]),
         odbc_query(opac, SQL)
     ), Error, (
         format('[DB ERROR] add book: ~w~n', [Error]),
@@ -168,7 +168,7 @@ edit_book :-
 sql_update_book(ID, Title, Author, Year, Copies, Dewey) :-
     catch((
         connect_db,
-        format(atom(SQL), 'UPDATE books SET title=\'~w\', author=\'~w\', year_published=~w, copies=~w, dewey_decimal=~w WHERE book_id=~w', [Title, Author, Year, Copies, Dewey, ID]),
+        format(atom(SQL), 'UPDATE books SET title=~q, author=~q, year_published=~w, copies=~w, dewey_decimal=~w WHERE book_id=~w', [Title, Author, Year, Copies, Dewey, ID]),
         odbc_query(opac, SQL)
     ), Error, (
         format('[DB ERROR] edit book: ~w~n', [Error]),
